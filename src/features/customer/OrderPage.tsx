@@ -64,13 +64,13 @@ export function OrderPage() {
         </div>
         {order.tableName ? <p className="table-chip">Table {order.tableName}</p> : null}
       </header>
-      <main className="stack">
+      <main className="receipt">
         <div className="badge-row">
           <StatusBadge status={order.status} />
           <PaymentBadge status={order.paymentStatus} />
         </div>
         <p>Thanks, {order.customerName}. The cafe has your order.</p>
-        <ul className="plain-list">
+        <ul className="receipt-lines">
           {order.items.map((item) => (
             <li key={item.id}>
               <div>
@@ -100,7 +100,7 @@ export function OrderPage() {
           </ol>
         </section>
         {error ? <p className="field-error">{error}</p> : null}
-        <Link className="text-link" to="/menu">Back to menu</Link>
+        <Link className="text-link" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>Back to menu</Link>
       </main>
     </div>
   );

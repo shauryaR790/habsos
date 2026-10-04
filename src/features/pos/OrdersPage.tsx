@@ -1,55 +1,77 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { formatINR, formatTime, OPEN_STATUSES } from '../../../shared/domain';
+import { useState } from 'react';
+import { canTransition, formatINR, PAYMENT_METHODS, type OrderStatus, type PaymentMethod } from '../../../shared/domain';
 import { useTitle } from '../../lib/useTitle';
-import { EmptyState } from '../../components/EmptyState';
+import { Button } from '../../components/Button';
+import { Drawer } from '../../components/Drawer';
 import { PaymentBadge } from '../../components/PaymentBadge';
 import { StatusBadge } from '../../components/StatusBadge';
 import { usePos } from './PosContext';
 
-const FILTERS = ['Open', 'Unpaid', 'All'] as const;
+const ACTIONS: { label: string; status: OrderStatus }[] = [
+  { label: 'Ready', status: 'READY' },
+  { label: 'Served', status: 'SERVED' },
+  { label: 'Complete', status: 'COMPLETED' },
+];
 
 export function OrdersPage() {
   useTitle('Orders');
   const pos = usePos();
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('Open');
-  const [query, setQuery] = useState('');
-  const orders = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return pos.orders.filter((order) => {
-      if (filter === 'Open' && !OPEN_STATUSES.includes(order.status)) return false;
-      if (filter === 'Unpaid' && (order.paymentStatus !== 'UNPAID' || order.status === 'CANCELLED' || order.status === 'OTP_PENDING')) return false;
-      if (!needle) return true;
-      return `${order.orderNumber} ${order.customerName} ${order.tableName ?? ''}`.toLowerCase().includes(needle);
-    });
-  }, [filter, pos.orders, query]);
+  const [tableId, setTableId] = useState<string | null>(null);
+  const table = pos.tables.find((entry) => entry.id === tableId) ?? null;
+  const order = table?.openOrder ? pos.orders.find((entry) => entry.id === table.openOrder?.id) ?? null : null;
 
   return (
     <section className="stack">
       <h1>Orders</h1>
-      <div className="filters" role="tablist">
-        {FILTERS.map((item) => (
-          <button key={item} type="button" className={filter === item ? 'cat-btn active' : 'cat-btn'} onClick={() => setFilter(item)}>{item}</button>
-        ))}
+      <div className="floor">
+        {pos.tables.map((entry) => {
+          const open = entry.openOrder;
+          const tone = !open ? 'empty' : open.paymentStatus === 'PAID' ? 'paid' : 'unpaid';
+          return (
+            <button key={entry.id} type="button" className={`floor-table ${tone}`} onClick={() => setTableId(entry.id)}>
+              <strong>{entry.name}</strong>
+              <span className="floor-no">{open ? `#${open.orderNumber || '—'}` : 'Free'}</span>
+            </button>
+          );
+        })}
       </div>
-      <label className="field">
-        <span>Search</span>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Number, name, or table" />
-      </label>
-      {orders.length === 0 ? <EmptyState title="No orders" body="Nothing matches this view." /> : null}
-      <div className="order-list">
-        {orders.map((order) => (
-          <Link key={order.id} className="order-row" to={`/pos/orders/${order.id}`}>
-            <strong>#{order.orderNumber || '—'}</strong>
-            <span>{order.tableName ? `Table ${order.tableName}` : 'No table'}</span>
-            <span>{order.customerName}</span>
-            <StatusBadge status={order.status} />
-            <PaymentBadge status={order.paymentStatus} />
-            <span className="price">{formatINR(order.total)}</span>
-            <time>{formatTime(order.createdAt)}</time>
-          </Link>
-        ))}
-      </div>
+      <Drawer open={Boolean(table)} title={table?.name ?? 'Table'} onClose={() => setTableId(null)}>
+        {!table ? null : !order ? (
+          <p>No open order at this table.</p>
+        ) : (
+          <div className="stack">
+            <div className="badge-row">
+              <StatusBadge status={order.status} />
+              <PaymentBadge status={order.paymentStatus} />
+            </div>
+            <p>{order.customerName}</p>
+            <ul className="ticket-items">
+              {order.items.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.quantity} × {item.nameSnapshot}</strong>
+                  {item.addons.length ? <ul>{item.addons.map((addon) => <li key={addon.id}>{addon.nameSnapshot}</li>)}</ul> : null}
+                </li>
+              ))}
+            </ul>
+            <p className="price">{formatINR(order.total)}</p>
+            <div className="row-actions">
+              {ACTIONS.filter((action) => canTransition(order.status, action.status)).map((action) => (
+                <Button key={action.status} onClick={() => void pos.setStatus(order.id, action.status)}>{action.label}</Button>
+              ))}
+              {canTransition(order.status, 'CANCELLED') ? (
+                <Button variant="danger" onClick={() => void pos.setStatus(order.id, 'CANCELLED')}>Cancel</Button>
+              ) : null}
+            </div>
+            {order.paymentStatus === 'UNPAID' && order.status !== 'CANCELLED' ? (
+              <div className="pay-row">
+                {PAYMENT_METHODS.map((method) => (
+                  <Button key={method} variant="ghost" onClick={() => void pos.pay(order.id, method as PaymentMethod)}>{method}</Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Drawer>
     </section>
   );
 }

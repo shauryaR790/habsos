@@ -8,6 +8,7 @@ import { CartPage } from './features/customer/CartPage';
 import { CheckoutPage } from './features/customer/CheckoutPage';
 import { MenuPage } from './features/customer/MenuPage';
 import { OrderPage } from './features/customer/OrderPage';
+import { TableQrPage } from './features/customer/TableQrPage';
 import { LoginPage } from './features/pos/LoginPage';
 
 const PosShell = lazy(() => import('./features/pos/PosShell'));
@@ -21,6 +22,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/menu" replace />} />
             <Route path="/menu" element={<MenuPage />} />
+            <Route path="/qr/:code" element={<TableQrPage />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/order/:id" element={<OrderPage />} />

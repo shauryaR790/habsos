@@ -1,19 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatINR, taxLabel } from '../../../shared/domain';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { LoadingState } from '../../components/LoadingState';
+import { Modal } from '../../components/Modal';
 import { ProductCard } from '../../components/ProductCard';
 import { useCart, type Bootstrap, type CartLine } from './cart';
 import { ItemSheet } from './ItemSheet';
+import { TableScanner } from './TableScanner';
 
 export function MenuPage() {
   useTitle('Menu');
   const cart = useCart();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
+  const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -64,6 +68,11 @@ export function MenuPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
+  const onTable = useCallback((code: string) => {
+    setScanning(false);
+    navigate(`/menu?table=${encodeURIComponent(code)}`);
+  }, [navigate]);
+
   const catalog = cart.catalog;
   const sheetItem = catalog?.items.find((item) => item.id === sheet?.itemId) ?? null;
 
@@ -75,7 +84,9 @@ export function MenuPage() {
           <p className="eyebrow">Coffee · Breakfast · Café</p>
           <h1>{catalog?.cafe.name ?? 'After Dunes'}</h1>
         </div>
-        {cart.tableCode ? <p className="table-chip">Table {cart.tableCode}</p> : <p className="table-chip muted">Scan a table QR</p>}
+        <button type="button" className="table-chip" onClick={() => setScanning(true)}>
+          {cart.tableCode ? `Table ${cart.tableCode}` : 'Scan table'}
+        </button>
         <Link className="header-cart" to="/cart">Cart{cart.count ? ` ${cart.count}` : ''}</Link>
       </header>
       {catalog ? (
@@ -101,7 +112,12 @@ export function MenuPage() {
           <EmptyState title="Menu unavailable" body={error} />
         ) : null}
         {error ? <Button onClick={() => void load()}>Retry</Button> : null}
-        {!cart.tableCode && catalog ? <p className="banner">Open the QR code on your table to place an order. You can still look through the menu.</p> : null}
+        {!cart.tableCode && catalog ? (
+          <div className="banner scan-banner">
+            <span>Scan the QR on your table to order.</span>
+            <button type="button" className="btn" onClick={() => setScanning(true)}>Scan table</button>
+          </div>
+        ) : null}
         {catalog ? (
           <div className="menu-layout">
             <div>
@@ -159,6 +175,9 @@ export function MenuPage() {
           }}
         />
       ) : null}
+      <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
+        {scanning ? <TableScanner onTable={onTable} /> : null}
+      </Modal>
     </div>
   );
 }

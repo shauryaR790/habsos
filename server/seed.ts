@@ -30,9 +30,39 @@ const FOOD: [string, string, number, string][] = [
   ['item_paneer_wrap', 'Paneer Wrap', 230, 'Grilled paneer, salad, and mint in a wrap.'],
 ];
 
+const MENU_IMAGES: Record<string, string> = {
+  item_espresso: '/items/espresso.jpg',
+  item_americano: '/items/americano.jpg',
+  item_cappuccino: '/items/cappuccino.jpg',
+  item_latte: '/items/latte.jpg',
+  item_mocha: '/items/mocha.jpg',
+  item_iced_latte: '/items/iced-latte.jpg',
+  item_cold_coffee: '/items/cold-coffee.jpg',
+  item_matcha: '/items/matcha.jpg',
+  item_hot_chocolate: '/items/hot-chocolate.jpg',
+  item_masala_chai: '/items/chai.jpg',
+  item_butter_croissant: '/items/butter-croissant.jpg',
+  item_choc_croissant: '/items/choc-croissant.jpg',
+  item_blueberry_muffin: '/items/blueberry-muffin.jpg',
+  item_choc_muffin: '/items/choc-muffin.jpg',
+  item_garlic_bread: '/items/garlic-bread.jpg',
+  item_grilled_cheese: '/items/grilled-cheese.jpg',
+  item_veg_club: '/items/veg-club.jpg',
+  item_margherita: '/items/pizza.jpg',
+  item_fries: '/items/fries.jpg',
+  item_paneer_wrap: '/items/paneer-wrap.jpg',
+};
+
+function applyMenuImages() {
+  for (const [id, url] of Object.entries(MENU_IMAGES)) {
+    run(`UPDATE menu_items SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '' OR image_url LIKE '/menu/%')`, [url, id]);
+  }
+}
+
 export async function seed() {
   if (get('SELECT id FROM cafes WHERE id = ?', [CAFE_ID])) {
     run(`UPDATE cafes SET name = 'After Dunes' WHERE id = ? AND name = 'Habsos'`, [CAFE_ID]);
+    applyMenuImages();
     return;
   }
   const now = new Date().toISOString();
@@ -123,6 +153,7 @@ export async function seed() {
     ],
   });
   retimeOrder(fresh.id, ago(6));
+  applyMenuImages();
 }
 
 function insertItem(item: [string, string, number, string], categoryId: string, sortOrder: number, now: string) {

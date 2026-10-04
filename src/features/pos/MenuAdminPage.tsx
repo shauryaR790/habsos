@@ -24,21 +24,26 @@ export function MenuAdminPage() {
       {pos.categories.map((category) => (
         <section key={category.id} className="stack">
           <h2>{category.name}</h2>
-          {pos.items.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder).map((item) => (
-            <article key={item.id} className="admin-row">
-              <div>
-                <strong>{item.name}</strong>
-                <span className="price">{formatINR(item.price)}</span>
-                {!item.isAvailable ? <span className="badge bad">Sold out</span> : null}
-              </div>
-              <div className="row-actions">
-                <Button variant={item.isAvailable ? 'danger' : 'primary'} onClick={() => void pos.saveItem({ ...item, isAvailable: !item.isAvailable })}>
-                  {item.isAvailable ? 'Mark sold out' : 'Mark available'}
-                </Button>
-                <Button variant="ghost" onClick={() => open(item)}>Edit</Button>
-              </div>
-            </article>
-          ))}
+          <div className="menu-admin">
+            {pos.items.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder).map((item) => (
+              <article key={item.id} className="menu-card">
+                {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <div className="menu-card-photo" />}
+                <div className="menu-card-body">
+                  <div className="name-row">
+                    <strong>{item.name}</strong>
+                    <span className="price">{formatINR(item.price)}</span>
+                    {!item.isAvailable ? <span className="badge bad">Sold out</span> : null}
+                  </div>
+                  <div className="row-actions">
+                    <Button variant={item.isAvailable ? 'danger' : 'primary'} onClick={() => void pos.saveItem({ ...item, isAvailable: !item.isAvailable })}>
+                      {item.isAvailable ? 'Sold out' : 'Available'}
+                    </Button>
+                    <Button variant="ghost" onClick={() => open(item)}>Edit</Button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       ))}
       <section className="stack">

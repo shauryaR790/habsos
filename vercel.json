@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/menu", "destination": "/index.html" },
+    { "source": "/cart", "destination": "/index.html" },
+    { "source": "/checkout", "destination": "/index.html" },
+    { "source": "/order/:path*", "destination": "/index.html" },
+    { "source": "/qr/:path*", "destination": "/index.html" },
+    { "source": "/pos", "destination": "/index.html" },
+    { "source": "/pos/:path*", "destination": "/index.html" }
+  ]
+}
