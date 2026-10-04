@@ -1,5 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 
+if (process.env.VERCEL) {
+  process.env.NODE_ENV = 'production';
+  process.env.DB_PATH = '/tmp/habsos.db';
+}
+
 if (process.argv.includes('--prod')) {
   process.env.NODE_ENV = 'production';
 }

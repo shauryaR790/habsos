@@ -60,7 +60,13 @@ function idOf(value: string | string[]) {
 
 export const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '256kb' }));
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    next();
+    return;
+  }
+  express.json({ limit: '256kb' })(req, res, next);
+});
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');

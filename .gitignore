@@ -3,6 +3,9 @@ dist
 dev-dist
 data
 .env
+.env.local
 .env.production
+.vercel
 *.log
 .DS_Store
+.env*

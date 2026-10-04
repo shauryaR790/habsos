@@ -1,18 +1,15 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { env } from './env';
 
-if (env.dbPath !== ':memory:') {
-  mkdirSync(dirname(env.dbPath), { recursive: true });
-}
-
-export const db = new DatabaseSync(env.dbPath);
-db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA busy_timeout = 4000');
-if (env.dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
-
-db.exec(`
+function openDatabase(file: string) {
+  if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
+  const database = new DatabaseSync(file);
+  database.exec('PRAGMA foreign_keys = ON');
+  database.exec('PRAGMA busy_timeout = 4000');
+  if (file !== ':memory:' && !file.startsWith('/tmp')) database.exec('PRAGMA journal_mode = WAL');
+  database.exec(`
 CREATE TABLE IF NOT EXISTS cafes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -197,6 +194,40 @@ CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
 CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_otp_order ON otp_challenges(order_id, created_at);
 `);
+  return database;
+}
+
+let current: DatabaseSync | null = null;
+
+function live() {
+  if (!current) current = openDatabase(env.dbPath);
+  return current;
+}
+
+export const db: DatabaseSync = new Proxy({} as DatabaseSync, {
+  get(_target, prop) {
+    const database = live();
+    const value = database[prop as keyof DatabaseSync];
+    if (typeof value === 'function') return (value as (...args: unknown[]) => unknown).bind(database);
+    return value;
+  },
+});
+
+export function adoptIncoming() {
+  const incoming = `${env.dbPath}.incoming`;
+  if (!existsSync(incoming)) return;
+  try {
+    current?.close();
+  } catch {
+    /* already closed */
+  }
+  current = null;
+  rmSync(env.dbPath, { force: true });
+  rmSync(`${env.dbPath}-wal`, { force: true });
+  rmSync(`${env.dbPath}-shm`, { force: true });
+  renameSync(incoming, env.dbPath);
+  current = openDatabase(env.dbPath);
+}
 
 type SqlValue = string | number | null | bigint;
 
