@@ -5,29 +5,29 @@ import { CAFE_ID } from './ids';
 import { createStaffOrder, markPaid, retimeOrder, transitionOrder } from './logic';
 
 const DRINKS: [string, string, number, string][] = [
-  ['item_espresso', 'Espresso', 120, 'A short, intense shot of coffee.'],
-  ['item_americano', 'Americano', 140, 'Espresso lengthened with hot water.'],
-  ['item_cappuccino', 'Cappuccino', 160, 'Espresso with steamed milk and a thick foam cap.'],
-  ['item_latte', 'Cafe Latte', 170, 'A longer milk coffee with a thin layer of foam.'],
-  ['item_mocha', 'Mocha', 190, 'Espresso, cocoa, and steamed milk.'],
-  ['item_iced_latte', 'Iced Latte', 190, 'Espresso and cold milk over ice.'],
-  ['item_cold_coffee', 'Cold Coffee', 180, 'Blended coffee, milk, and ice.'],
-  ['item_matcha', 'Matcha Latte', 210, 'Ceremonial matcha whisked with milk.'],
-  ['item_hot_chocolate', 'Hot Chocolate', 180, 'Warm cocoa with steamed milk.'],
-  ['item_masala_chai', 'Masala Chai', 100, 'Black tea simmered with milk and spices.'],
+  ['item_espresso', 'Espresso', 120, 'A short, intense shot of coffee. Pulled at 30ml so the crema stays thick and the finish turns sweet before it goes sharp. Medium-dark roast, stopped while the shot is still syrupy, served in a warm cup. The crema should cover the surface and smell like toasted cocoa.'],
+  ['item_americano', 'Americano', 140, 'Espresso lengthened with hot water. A double shot opened with hot water, so it drinks long and clean without the bitterness of an over-extracted brew. Dark, hot, and meant to be sat with. Water goes in first, then the shot, so the crema stays on top.'],
+  ['item_cappuccino', 'Cappuccino', 160, 'Espresso with steamed milk and a thick foam cap. The shot sits under a dry foam tall enough to hold a spoon, not a thin latte swirl. Milk is stretched until glossy, then poured so the cap stays high. The cup is warmed before the pour, and the foam should reach the rim.'],
+  ['item_latte', 'Cafe Latte', 170, 'A longer milk coffee with a thin layer of foam. More milk than a cappuccino, with the espresso folded through so every sip is soft and even. The foam is a short lid, not a mound. The milk is steamed sweet, not scalded, and the shot is buried so the first sip is already mixed.'],
+  ['item_mocha', 'Mocha', 190, 'Espresso, cocoa, and steamed milk. Dutch cocoa melted into the shot, then milk poured through it so the chocolate stays a little bitter rather than candy-sweet. A short cocoa dust on top. The cocoa is mixed into the espresso before the milk, so it does not sit as a powder at the bottom.'],
+  ['item_iced_latte', 'Iced Latte', 190, 'Espresso and cold milk over ice. The shot is pulled hot and poured straight over ice and cold milk, so it chills without a blender watering it down. Drink it before the ice gives up. The glass is filled with ice first, then milk, then the shot, so the coffee ribbons through instead of sinking in one lump.'],
+  ['item_cold_coffee', 'Cold Coffee', 180, 'Blended coffee, milk, and ice. Whipped until it is thick enough to hold a straw upright, with the coffee still tasting like coffee under the milk. Not a milkshake, and not a watery iced coffee. It comes out pale and frothy, with the ice broken fine so the cup stays cold to the last sip.'],
+  ['item_matcha', 'Matcha Latte', 210, 'Ceremonial matcha whisked with milk. The tea is sifted and whisked before the milk goes in, so it stays grassy and vivid green instead of turning chalky. Ask if you want it lightly sweet. The bowl is whisked until the surface is even, then the milk is poured through.'],
+  ['item_hot_chocolate', 'Hot Chocolate', 180, 'Warm cocoa with steamed milk. Real cocoa melted into hot milk until it is dense and a little bitter, not a powder packet. Served hot enough that the cup needs a minute in your hands. There is no espresso in it. The cocoa is dark, and the milk is steamed until the cup needs a minute in your hands.'],
+  ['item_masala_chai', 'Masala Chai', 100, 'Black tea simmered with milk and spices. Ginger, cardamom, and a little black pepper boiled with the tea and milk, then strained. Spice comes first. Sugar, if you want it, comes second. It is boiled, not steeped, so the cup is strong and a little thick.'],
 ];
 
 const FOOD: [string, string, number, string][] = [
-  ['item_butter_croissant', 'Butter Croissant', 140, 'Flaky, butter-laminated pastry.'],
-  ['item_choc_croissant', 'Chocolate Croissant', 170, 'Croissant with a dark chocolate baton.'],
-  ['item_blueberry_muffin', 'Blueberry Muffin', 130, 'Soft muffin with blueberries.'],
-  ['item_choc_muffin', 'Chocolate Muffin', 130, 'Cocoa muffin with chocolate chunks.'],
-  ['item_garlic_bread', 'Garlic Bread', 160, 'Toasted bread with garlic butter.'],
-  ['item_grilled_cheese', 'Grilled Cheese Sandwich', 220, 'Cheese melted in toasted bread.'],
-  ['item_veg_club', 'Veg Club Sandwich', 240, 'Toasted triple-layer sandwich with vegetables.'],
-  ['item_margherita', 'Margherita Pizza', 280, 'Tomato, mozzarella, and basil on a thin base.'],
-  ['item_fries', 'Peri Peri Fries', 190, 'Fries tossed with peri peri salt.'],
-  ['item_paneer_wrap', 'Paneer Wrap', 230, 'Grilled paneer, salad, and mint in a wrap.'],
+  ['item_butter_croissant', 'Butter Croissant', 140, 'Flaky, butter-laminated pastry. Folded so the layers shatter, with enough butter that the crumb stays tender instead of dry. Baked the same morning, and served warm if you are here early. The outside should crack when you tear it, and the inside should pull into thin sheets.'],
+  ['item_choc_croissant', 'Chocolate Croissant', 170, 'Croissant with a dark chocolate baton. The same laminated dough, with a bar of dark chocolate baked into the centre so it stays soft in the middle and set at the ends. The chocolate is bitter enough to cut the butter.'],
+  ['item_blueberry_muffin', 'Blueberry Muffin', 130, 'Soft muffin with blueberries. A tall dome, a tender crumb, and berries that burst instead of sinking into a wet streak. Sweet, but not so sweet that you lose the fruit. The top is baked until it just colours, and the berries are folded in whole.'],
+  ['item_choc_muffin', 'Chocolate Muffin', 130, 'Cocoa muffin with chocolate chunks. Dark cocoa in the batter and chunks that stay soft in the middle. Dense rather than cakey, and still warm if the tray just came out. The crumb should be damp, not dry, and the chocolate should stretch a little when the muffin is split.'],
+  ['item_garlic_bread', 'Garlic Bread', 160, 'Toasted bread with garlic butter. A split loaf brushed with butter, garlic, and parsley, then toasted until the edges crisp and the middle stays soft enough to pull apart. The garlic is cooked into the butter so it is sweet, not raw.'],
+  ['item_grilled_cheese', 'Grilled Cheese Sandwich', 220, 'Cheese melted in toasted bread. Mature cheddar between bread buttered on the outside and cooked until the crumb is crisp and the cheese still stretches when you pull it. Pressed flat so the middle melts before the crust burns.'],
+  ['item_veg_club', 'Veg Club Sandwich', 240, 'Toasted triple-layer sandwich with vegetables. Three slices of toast with cucumber, tomato, lettuce, and a little cheese, cut so the quarters stand up instead of sliding apart. The toast is dry enough to hold the tomato, and the layers are stacked even so each bite has bread, cheese, and salad.'],
+  ['item_margherita', 'Margherita Pizza', 280, 'Tomato, mozzarella, and basil on a thin base. A personal pie with a blistered rim, crushed tomato, and mozzarella that pools instead of baking into a hard crust. Basil goes on after the oven. The centre stays soft, the rim should have a little chew, and it is cut into four.'],
+  ['item_fries', 'Peri Peri Fries', 190, 'Fries tossed with peri peri salt. Twice-cooked until the edges shatter, then tossed with peri peri so the heat sits on the crust. No wet sauce drowning them. They come out hot and dry, with the spice on the surface rather than mixed into a powder pile at the bottom of the tray.'],
+  ['item_paneer_wrap', 'Paneer Wrap', 230, 'Grilled paneer, salad, and mint in a wrap. Paneer seared until the edges brown, rolled with onion, cucumber, and mint. Built so it eats clean, not soggy. The bread is warmed, the salad is dried, and the mint is mixed through so it is not a puddle at one end.'],
 ];
 
 const MENU_IMAGES: Record<string, string> = {
@@ -59,10 +59,17 @@ function applyMenuImages() {
   }
 }
 
+function applyMenuCopy() {
+  for (const item of [...DRINKS, ...FOOD]) {
+    run('UPDATE menu_items SET description = ? WHERE id = ?', [item[3], item[0]]);
+  }
+}
+
 export async function seed() {
   if (get('SELECT id FROM cafes WHERE id = ?', [CAFE_ID])) {
     run(`UPDATE cafes SET name = 'After Dunes' WHERE id = ? AND name = 'Habsos'`, [CAFE_ID]);
     applyMenuImages();
+    applyMenuCopy();
     return;
   }
   const now = new Date().toISOString();
@@ -154,6 +161,7 @@ export async function seed() {
   });
   retimeOrder(fresh.id, ago(6));
   applyMenuImages();
+  applyMenuCopy();
 }
 
 function insertItem(item: [string, string, number, string], categoryId: string, sortOrder: number, now: string) {

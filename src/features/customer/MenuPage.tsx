@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { formatINR, taxLabel } from '../../../shared/domain';
+import { formatINR } from '../../../shared/domain';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
@@ -75,27 +75,27 @@ export function MenuPage() {
 
   const catalog = cart.catalog;
   const sheetItem = catalog?.items.find((item) => item.id === sheet?.itemId) ?? null;
+  const recommended = catalog?.items.filter((item) => item.isAvailable).slice(0, 6) ?? [];
 
   return (
-    <div className="cust">
+    <div className="guest">
       <a className="skip" href="#menu">Skip to menu</a>
-      <header className="cust-header">
-        <div>
-          <p className="eyebrow">Coffee · Breakfast · Café</p>
-          <h1>{catalog?.cafe.name ?? 'After Dunes'}</h1>
+      <header className="guest-bar">
+        <p className="wordmark">{catalog?.cafe.name ?? 'After Dunes'}</p>
+        <div className="guest-tools">
+          <Link className="guest-bag" to="/cart" aria-label={cart.count ? `Cart, ${cart.count} items` : 'Cart'}>
+            Cart
+            {cart.count ? <span>{cart.count}</span> : null}
+          </Link>
         </div>
-        <button type="button" className="table-chip" onClick={() => setScanning(true)}>
-          {cart.tableCode ? `Table ${cart.tableCode}` : 'Scan table'}
-        </button>
-        <Link className="header-cart" to="/cart">Cart{cart.count ? ` ${cart.count}` : ''}</Link>
       </header>
       {catalog ? (
-        <nav className="cats" aria-label="Categories">
+        <nav className="guest-tabs" aria-label="Categories">
           {catalog.categories.map((category) => (
             <button
               key={category.id}
               type="button"
-              className={active === category.id ? 'cat-btn active' : 'cat-btn'}
+              className={active === category.id ? 'active' : undefined}
               onClick={() => {
                 setActive(category.id);
                 document.getElementById(`cat-${category.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -106,11 +106,9 @@ export function MenuPage() {
           ))}
         </nav>
       ) : null}
-      <main id="menu" className="cust-main">
+      <main id="menu" className="guest-main">
         {loading && !catalog ? <LoadingState label="Loading menu" /> : null}
-        {error ? (
-          <EmptyState title="Menu unavailable" body={error} />
-        ) : null}
+        {error ? <EmptyState title="Menu unavailable" body={error} /> : null}
         {error ? <Button onClick={() => void load()}>Retry</Button> : null}
         {!cart.tableCode && catalog ? (
           <div className="banner scan-banner">
@@ -118,44 +116,29 @@ export function MenuPage() {
             <button type="button" className="btn" onClick={() => setScanning(true)}>Scan table</button>
           </div>
         ) : null}
-        {catalog ? (
-          <div className="menu-layout">
-            <div>
-              {catalog.categories.map((category) => {
-                const items = catalog.items.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
-                return (
-                  <section key={category.id} id={`cat-${category.id}`} className="menu-section">
-                    <h2>{category.name}</h2>
-                    <div className="menu-grid">
-                      {items.map((item) => (
-                        <ProductCard key={item.id} item={item} onSelect={(selected) => setSheet({ itemId: selected.id })} />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
+        {catalog && recommended.length ? (
+          <section className="rec-block" aria-label="Recommended">
+            <h2>Recommended</h2>
+            <div className="rec-row">
+              {recommended.map((item) => (
+                <ProductCard key={item.id} compact item={item} onSelect={(selected) => setSheet({ itemId: selected.id })} />
+              ))}
             </div>
-            <aside className="cart-rail" aria-label="Cart summary">
-              <h2>Your order</h2>
-              {cart.lineViews.length === 0 ? <p>Nothing added yet.</p> : null}
-              <ul>
-                {cart.lineViews.map((line) => (
-                  <li key={line.lineId}>
-                    <span>{line.quantity} × {line.name}</span>
-                    <span className="price">{line.total === null ? '—' : formatINR(line.total)}</span>
-                  </li>
-                ))}
-              </ul>
-              {cart.totals ? (
-                <p className="rail-total">
-                  <span>Total incl. tax {taxLabel(catalog.cafe.taxBps)}</span>
-                  <strong className="price">{formatINR(cart.totals.total)}</strong>
-                </p>
-              ) : null}
-              <Link className="btn btn-primary btn-full" to="/cart">View cart</Link>
-            </aside>
-          </div>
+          </section>
         ) : null}
+        {catalog ? catalog.categories.map((category) => {
+          const items = catalog.items.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
+          return (
+            <section key={category.id} id={`cat-${category.id}`} className="menu-block">
+              <h2>{category.name}</h2>
+              <div className="order-list">
+                {items.map((item) => (
+                  <ProductCard key={item.id} item={item} onSelect={(selected) => setSheet({ itemId: selected.id })} />
+                ))}
+              </div>
+            </section>
+          );
+        }) : null}
       </main>
       {cart.count > 0 ? (
         <Link className="cart-bar" to="/cart">

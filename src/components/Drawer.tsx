@@ -6,11 +6,17 @@ export function Drawer({
   title,
   onClose,
   children,
+  footer,
+  chrome = true,
+  className = '',
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  footer?: ReactNode;
+  chrome?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -30,14 +36,19 @@ export function Drawer({
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="drawer-root">
+    <div className={`drawer-root ${className}`.trim()}>
       <button type="button" className="backdrop" aria-label="Close" onClick={onClose} />
-      <div ref={ref} className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabIndex={-1}>
-        <header className="sheet-head">
-          <h2 id="drawer-title">{title}</h2>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
-        </header>
+      <div ref={ref} className={`drawer ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabIndex={-1}>
+        {chrome ? (
+          <header className="sheet-head">
+            <h2 id="drawer-title">{title}</h2>
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+          </header>
+        ) : (
+          <h2 id="drawer-title" className="sr-only">{title}</h2>
+        )}
         <div className="sheet-body">{children}</div>
+        {footer ? <div className="sheet-foot">{footer}</div> : null}
       </div>
     </div>
   );

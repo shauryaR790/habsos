@@ -493,6 +493,47 @@ async function currentOtp(orderId: string, mobile: string) {
   return issueOtp(orderId, mobile);
 }
 
+export function placeGuestOrder(input: {
+  tableCode: string;
+  customerName: string;
+  customerMobile: string;
+  items: CartLineInput[];
+  clientKey?: string;
+}) {
+  const mobile = normalizeMobile(input.customerMobile);
+  if (!mobile) throw new AppError(400, 'MOBILE', 'Enter a valid 10-digit mobile number.');
+  const name = cleanName(input.customerName);
+  const table = findTable(null, input.tableCode);
+  if (!table) throw new AppError(404, 'TABLE', 'This table is not recognized. Scan the QR code on your table.');
+  if (input.clientKey) {
+    const existing = getOrderByClientKey(input.clientKey);
+    if (existing && !['CANCELLED', 'OTP_PENDING', 'DRAFT'].includes(existing.status)) return existing;
+  }
+  const id = input.clientKey ?? randomUUID();
+  const order = tx(() => {
+    const quote = quoteOrThrow(input.items);
+    const now = new Date().toISOString();
+    const customerId = upsertCustomer(name, mobile, now);
+    const created = insertPricedOrder({
+      id,
+      clientKey: input.clientKey ?? id,
+      tableId: table.id,
+      tableName: table.name,
+      customerName: name,
+      customerMobile: mobile,
+      status: 'CONFIRMED',
+      source: 'QR',
+      quote,
+      actor: 'customer',
+      eventMessage: statusMessage('CONFIRMED'),
+    });
+    run(`UPDATE orders SET customer_id = ? WHERE id = ?`, [customerId, created.id]);
+    return getOrder(created.id)!;
+  });
+  notify(order);
+  return order;
+}
+
 export async function startCheckout(input: {
   tableCode: string;
   customerName: string;

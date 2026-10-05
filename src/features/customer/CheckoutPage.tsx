@@ -5,15 +5,8 @@ import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
-import { useCart } from './cart';
-
-type StartResponse = {
-  order: PublicOrder;
-  challengeId?: string;
-  expiresAt?: string;
-  resendAfter?: number;
-  devCode?: string;
-};
+import { useCart, type Bootstrap } from './cart';
+import { PlacedBurst } from './PlacedBurst';
 
 export function CheckoutPage() {
   useTitle('Checkout');
@@ -22,33 +15,42 @@ export function CheckoutPage() {
   const clientKey = useRef(crypto.randomUUID());
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
-  const [phase, setPhase] = useState<'details' | 'otp'>('details');
-  const [order, setOrder] = useState<PublicOrder | null>(null);
-  const [code, setCode] = useState('');
-  const [devCode, setDevCode] = useState<string | null>(null);
-  const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'send' | 'verify' | 'resend' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [placed, setPlaced] = useState<PublicOrder | null>(null);
 
   useEffect(() => {
-    if (seconds <= 0) return;
-    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [seconds]);
+    if (cart.catalog) return;
+    const table = cart.tableCode;
+    void api<Bootstrap>(`/api/bootstrap${table ? `?table=${encodeURIComponent(table)}` : ''}`)
+      .then((data) => {
+        cart.setCatalog(data);
+        if (data.table) cart.setTableCode(data.table.name);
+      })
+      .catch(() => undefined);
+  }, [cart.catalog, cart.setCatalog, cart.setTableCode, cart.tableCode]);
+
+  if (placed) {
+    return <PlacedBurst order={placed} onDone={() => navigate(`/order/${placed.id}`)} />;
+  }
 
   if (!cart.tableCode || cart.lines.length === 0) {
     return (
-      <div className="cust narrow">
-        <EmptyCheckout />
+      <div className="guest narrow">
+        <main className="stack">
+          <h1>Checkout</h1>
+          <p>Your cart is empty, or this visit has no table QR.</p>
+          <Link className="btn btn-primary" to="/menu">Back to menu</Link>
+        </main>
       </div>
     );
   }
 
-  async function send() {
-    setBusy('send');
+  async function place() {
+    setBusy(true);
     setError(null);
     try {
-      const result = await api<StartResponse>('/api/checkout/start', {
+      const result = await api<{ order: PublicOrder }>('/api/checkout/place', {
         method: 'POST',
         body: JSON.stringify({
           tableCode: cart.tableCode,
@@ -63,110 +65,45 @@ export function CheckoutPage() {
           })),
         }),
       });
-      setOrder(result.order);
-      setDevCode(result.devCode ?? null);
-      setSeconds(result.resendAfter ?? 30);
-      setPhase('otp');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not start checkout.');
-      if (err instanceof ApiError && err.code === 'OTP_COOLDOWN' && err.details?.retryAfter) setSeconds(err.details.retryAfter);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function verify(nextCode = code) {
-    if (!order) return;
-    setBusy('verify');
-    setError(null);
-    try {
-      const result = await api<{ order: PublicOrder }>('/api/checkout/verify', {
-        method: 'POST',
-        body: JSON.stringify({ orderId: order.id, code: nextCode }),
-      });
       cart.clear();
-      navigate(`/order/${result.order.id}`);
+      setPlaced(result.order);
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Verification failed.';
-      setError(message);
-      if (err instanceof ApiError && (err.code === 'OTP_EXPIRED' || err.code === 'OTP_FAILED')) setCode('');
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function resend() {
-    if (!order) return;
-    setBusy('resend');
-    setError(null);
-    try {
-      const result = await api<StartResponse>('/api/checkout/resend', {
-        method: 'POST',
-        body: JSON.stringify({ orderId: order.id }),
-      });
-      setDevCode(result.devCode ?? null);
-      setSeconds(result.resendAfter ?? 30);
-      setCode('');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not resend the code.');
-      if (err instanceof ApiError && err.details?.retryAfter) setSeconds(err.details.retryAfter);
-    } finally {
-      setBusy(null);
+      setError(err instanceof ApiError ? err.message : 'Could not place the order.');
+      setBusy(false);
     }
   }
 
   return (
-    <div className="cust narrow">
-      <header className="cust-header">
-        <div>
-          <p className="eyebrow">Checkout</p>
-          <h1>{phase === 'otp' ? 'Verify mobile' : 'Your details'}</h1>
-        </div>
-        <p className="table-chip">Table {cart.tableCode}</p>
+    <div className="guest narrow">
+      <header className="guest-bar">
+        <Link className="guest-back" to="/cart">Back</Link>
+        <p className="wordmark">Checkout</p>
       </header>
-      <main className="stack">
-        {phase === 'details' ? (
-          <form
-            className="stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void send();
-            }}
-          >
-            <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
-            <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
-            {cart.totals ? <Totals subtotal={cart.totals.subtotal} tax={cart.totals.tax} discount={cart.totals.discount} total={cart.totals.total} taxBps={cart.catalog?.cafe.taxBps ?? 500} /> : null}
-            {cart.quoteError ? <p className="field-error">{cart.quoteError}</p> : null}
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-            <Button type="submit" full disabled={busy === 'send' || !cart.totals} aria-busy={busy === 'send'}>
-              {busy === 'send' ? 'Sending code…' : 'Send code'}
-            </Button>
-          </form>
-        ) : (
-          <form
-            className="stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void verify();
-            }}
-          >
-            <p>Enter the 6-digit code sent to {mobile}.</p>
-            {order ? <Totals subtotal={order.subtotal} tax={order.tax} discount={order.discount} total={order.total} taxBps={cart.catalog?.cafe.taxBps ?? 500} /> : null}
-            {import.meta.env.DEV && devCode ? <p className="dev-otp" role="status">Development code {devCode}</p> : null}
-            <OtpInput value={code} disabled={busy === 'verify'} onChange={(value) => {
-              setCode(value);
-              if (value.length === 6) void verify(value);
-            }} />
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-            <Button type="submit" full disabled={code.length !== 6 || busy === 'verify'} aria-busy={busy === 'verify'}>
-              {busy === 'verify' ? 'Checking…' : 'Place order'}
-            </Button>
-            <Button variant="ghost" full disabled={seconds > 0 || busy === 'resend'} onClick={() => void resend()}>
-              {seconds > 0 ? `Resend in ${seconds}s` : busy === 'resend' ? 'Sending…' : 'Resend code'}
-            </Button>
-          </form>
-        )}
-        <Link className="text-link" to="/cart">Back to cart</Link>
+      <main className="guest-main stack">
+        <form
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void place();
+          }}
+        >
+          <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
+          <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
+          <ul className="checkout-lines">
+            {cart.lineViews.map((line) => (
+              <li key={line.lineId}>
+                <span>{line.quantity} × {line.name}</span>
+                <span>{line.total === null ? '—' : formatINR(line.total)}</span>
+              </li>
+            ))}
+          </ul>
+          {cart.totals ? <Totals subtotal={cart.totals.subtotal} tax={cart.totals.tax} discount={cart.totals.discount} total={cart.totals.total} taxBps={cart.catalog?.cafe.taxBps ?? 500} /> : null}
+          {cart.quoteError ? <p className="field-error">{cart.quoteError}</p> : null}
+          {error ? <p className="field-error" role="alert">{error}</p> : null}
+          <Button type="submit" full disabled={busy || !cart.totals} aria-busy={busy}>
+            {busy ? 'Placing order…' : cart.totals ? `Place order · ${formatINR(cart.totals.total)}` : 'Place order'}
+          </Button>
+        </form>
       </main>
     </div>
   );
@@ -180,64 +117,5 @@ function Totals({ subtotal, tax, discount, total, taxBps }: { subtotal: number; 
       <div><dt>Tax ({taxLabel(taxBps)})</dt><dd>{formatINR(tax)}</dd></div>
       <div className="grand"><dt>Total</dt><dd>{formatINR(total)}</dd></div>
     </dl>
-  );
-}
-
-function OtpInput({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
-  const digits = Array.from({ length: 6 }, (_, index) => value[index] ?? '');
-  function write(next: string) {
-    onChange(next.replace(/\D/g, '').slice(0, 6));
-  }
-  return (
-    <div className="otp" role="group" aria-label="One-time code">
-      {digits.map((digit, index) => (
-        <input
-          key={index}
-          ref={(node) => { refs.current[index] = node; }}
-          className="otp-box"
-          inputMode="numeric"
-          autoComplete={index === 0 ? 'one-time-code' : 'off'}
-          aria-label={`Digit ${index + 1}`}
-          maxLength={1}
-          value={digit}
-          disabled={disabled}
-          onChange={(event) => {
-            const text = event.target.value.replace(/\D/g, '');
-            if (!text) {
-              write(value.slice(0, index) + value.slice(index + 1));
-              return;
-            }
-            if (text.length > 1) {
-              const next = (value.slice(0, index) + text).replace(/\D/g, '').slice(0, 6);
-              write(next);
-              refs.current[Math.min(5, next.length)]?.focus();
-              return;
-            }
-            const next = (value.slice(0, index) + text + value.slice(index + 1)).slice(0, 6);
-            write(next);
-            refs.current[Math.min(5, index + 1)]?.focus();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Backspace' && !digits[index] && index > 0) refs.current[index - 1]?.focus();
-          }}
-          onPaste={(event) => {
-            event.preventDefault();
-            write(event.clipboardData.getData('text'));
-            refs.current[5]?.focus();
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function EmptyCheckout() {
-  return (
-    <main className="stack">
-      <h1>Checkout</h1>
-      <p>Your cart is empty, or this visit has no table QR.</p>
-      <Link className="btn btn-primary" to="/menu">Back to menu</Link>
-    </main>
   );
 }

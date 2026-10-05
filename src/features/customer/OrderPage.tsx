@@ -45,10 +45,10 @@ export function OrderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (loading) return <div className="cust narrow"><LoadingState label="Loading order" /></div>;
+  if (loading) return <div className="guest narrow"><LoadingState label="Loading order" /></div>;
   if (!order) {
     return (
-      <div className="cust narrow stack">
+      <div className="guest narrow stack">
         <EmptyState title="Order unavailable" body={error ?? 'This order could not be loaded.'} />
         <Button onClick={() => void load()}>Retry</Button>
       </div>
@@ -56,14 +56,11 @@ export function OrderPage() {
   }
 
   return (
-    <div className="cust narrow">
-      <header className="cust-header">
-        <div>
-          <p className="eyebrow">{statusMessage(order.status)}</p>
-          <h1>Order #{order.orderNumber}</h1>
-        </div>
-        {order.tableName ? <p className="table-chip">Table {order.tableName}</p> : null}
+    <div className="guest narrow">
+      <header className="guest-bar">
+        <p className="wordmark">Order #{order.orderNumber}</p>
       </header>
+      <p className="guest-status">{statusMessage(order.status)}</p>
       <main className="receipt">
         <div className="badge-row">
           <StatusBadge status={order.status} />
@@ -100,7 +97,7 @@ export function OrderPage() {
           </ol>
         </section>
         {error ? <p className="field-error">{error}</p> : null}
-        <Link className="text-link" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>Back to menu</Link>
+        <Link className="btn btn-primary" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>Back to menu</Link>
       </main>
     </div>
   );

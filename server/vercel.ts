@@ -14,8 +14,22 @@ function lock<T>(fn: () => Promise<T>) {
   return run;
 }
 
+function incomingUrl(req: IncomingMessage) {
+  const current = req.url || '/';
+  const pathOnly = current.split('?')[0];
+  const collapsed = pathOnly === '/api/index' || pathOnly === '/index' || pathOnly === '/api';
+  if (!collapsed) return current;
+  const names = ['x-forwarded-uri', 'x-vercel-original-url', 'x-original-url', 'x-invoke-path', 'x-matched-path', 'x-forwarded-url'];
+  for (const name of names) {
+    const value = req.headers[name];
+    const header = Array.isArray(value) ? value[0] : value;
+    if (typeof header === 'string' && header.startsWith('/api/') && !header.startsWith('/api/index')) return header;
+  }
+  return current;
+}
+
 function apiUrl(req: IncomingMessage) {
-  const raw = req.url || '/';
+  const raw = incomingUrl(req);
   if (raw === '/api' || raw.startsWith('/api/')) return raw;
   const queryAt = raw.indexOf('?');
   const path = queryAt === -1 ? raw : raw.slice(0, queryAt);

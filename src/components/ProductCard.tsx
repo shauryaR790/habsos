@@ -1,26 +1,30 @@
 import type { MenuItem } from '../../shared/domain';
 import { formatINR } from '../../shared/domain';
-import { Button } from './Button';
 
-export function ProductCard({ item, onSelect }: { item: MenuItem; onSelect: (item: MenuItem) => void }) {
+export function ProductCard({
+  item,
+  onSelect,
+  compact = false,
+}: {
+  item: MenuItem;
+  onSelect: (item: MenuItem) => void;
+  compact?: boolean;
+}) {
   return (
-    <article className={item.isAvailable ? 'product' : 'product sold'}>
-      {item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy" /> : null}
-      <div className="product-top">
-        <span className={item.isVeg ? 'veg' : 'veg nonveg'}>
-          <i />
-          {item.isVeg ? 'Veg' : 'Non-veg'}
-        </span>
-        {!item.isAvailable ? <span className="badge bad">Sold out</span> : null}
-      </div>
-      <h3>{item.name}</h3>
-      <p>{item.description}</p>
-      <div className="product-foot">
-        <span className="price">{formatINR(item.price)}</span>
-        <Button disabled={!item.isAvailable} onClick={() => onSelect(item)}>
-          {item.isAvailable ? 'Add' : 'Sold out'}
-        </Button>
-      </div>
-    </article>
+    <button
+      type="button"
+      className={`${compact ? 'rec-card' : 'sb-card'}${item.isAvailable ? '' : ' sold'}`}
+      disabled={!item.isAvailable}
+      onClick={() => onSelect(item)}
+    >
+      {item.imageUrl ? <img className="sb-photo" src={item.imageUrl} alt="" loading="lazy" /> : <span className="sb-photo" />}
+      <span className="sb-copy">
+        <span className={item.isVeg ? 'mark veg' : 'mark nonveg'} aria-label={item.isVeg ? 'Vegetarian' : 'Non-vegetarian'} />
+        <span className="sb-name">{item.name}</span>
+        {item.isAvailable ? <span className="sb-meta">{item.description}</span> : <span className="sb-meta">Currently not available</span>}
+        <span className="sb-price">{formatINR(item.price)}</span>
+      </span>
+      {item.isAvailable ? <span className="sb-plus" aria-hidden="true">+</span> : null}
+    </button>
   );
 }

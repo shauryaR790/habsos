@@ -5,7 +5,7 @@ mkdirSync('api', { recursive: true });
 
 await build({
   entryPoints: ['server/vercel.ts'],
-  outfile: 'api/[...path].js',
+  outfile: 'api/index.js',
   bundle: true,
   platform: 'node',
   target: 'node22',

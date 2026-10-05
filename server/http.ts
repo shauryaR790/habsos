@@ -23,7 +23,7 @@ import {
 import { clearSessionCookie, createSession, destroySession, getSessionUser, readCookie, sessionCookie, verifyPassword } from './auth';
 import { get } from './db';
 import { exposeDevOtp, isProduction } from './env';
-import { AppError, applySyncBatch, cancelCheckout, createStaffOrder, getOrder, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, reportToday, resendOtp, setItemGroups, snapshot, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
+import { AppError, applySyncBatch, cancelCheckout, createStaffOrder, getOrder, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, placeGuestOrder, reportToday, resendOtp, setItemGroups, snapshot, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
 import { otpProvider } from './otp';
 import { openStream, touchDevice } from './realtime';
 
@@ -90,6 +90,12 @@ app.get('/api/bootstrap', wrap((req, res) => {
     items: catalog.items,
     addonGroups: catalog.addonGroups,
   });
+}));
+
+app.post('/api/checkout/place', wrap((req, res) => {
+  const body = checkoutStartSchema.parse(req.body);
+  const order = placeGuestOrder(body);
+  res.status(201).json({ order: toPublicOrder(order) });
 }));
 
 app.post('/api/checkout/start', wrap(async (req, res) => {

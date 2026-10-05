@@ -28,15 +28,12 @@ export function CartPage() {
   }, [cart.catalog, cart.setCatalog, cart.setTableCode, cart.tableCode]);
 
   return (
-    <div className="cust narrow">
-      <header className="cust-header">
-        <div>
-          <p className="eyebrow">Cart</p>
-          <h1>Your order</h1>
-        </div>
-        {cart.tableCode ? <p className="table-chip">Table {cart.tableCode}</p> : null}
+    <div className="guest narrow">
+      <header className="guest-bar">
+        <Link className="guest-back" to={`/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`}>Menu</Link>
+        <p className="wordmark">Your order</p>
       </header>
-      <main className="stack">
+      <main className="guest-main stack">
         {cart.lines.length === 0 ? <EmptyState title="Cart is empty" body="Add something from the menu." /> : null}
         {cart.lineViews.map((line) => (
           <CartItem
