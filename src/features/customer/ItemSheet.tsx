@@ -28,6 +28,9 @@ export function ItemSheet({
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [noteOpen, setNoteOpen] = useState(Boolean(initial?.notes));
   const makeRef = useRef<HTMLElement>(null);
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+  const pending = useRef<{ quantity: number; addonIds: string[]; notes: string } | null>(null);
 
   const preview = useMemo(() => {
     try {
@@ -43,10 +46,26 @@ export function ItemSheet({
     }
   }, [catalog, item.id, notes, quantity, selected]);
 
+  const [leaving, setLeaving] = useState(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   const dismiss = useCallback(() => {
+    if (leaving) return;
     if (stage === 'make' && !initial) setStage('peek');
-    else onClose();
-  }, [initial, onClose, stage]);
+    else setLeaving(true);
+  }, [initial, leaving, stage]);
+
+  useLayoutEffect(() => {
+    if (!leaving) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const timer = window.setTimeout(() => {
+      const saved = pending.current;
+      if (saved) onSaveRef.current(saved);
+      else onCloseRef.current();
+    }, reduced ? 0 : 340);
+    return () => window.clearTimeout(timer);
+  }, [leaving]);
 
   const resetDrink = useCallback(() => {
     setSelected([]);
@@ -107,8 +126,9 @@ export function ItemSheet({
   }
 
   function save() {
-    if (preview.error) return;
-    onSave({ quantity, addonIds: selected, notes: notes.trim() });
+    if (preview.error || leaving) return;
+    pending.current = { quantity, addonIds: selected, notes: notes.trim() };
+    setLeaving(true);
   }
 
   const fact = MENU_FACTS[item.id];
@@ -117,32 +137,30 @@ export function ItemSheet({
     .join(' · ');
 
   const footer = stage === 'peek' ? (
-    <div className="deal-bar">
-      <button type="button" className="deal-go" onClick={() => (groups.length ? setStage('make') : save())}>
-        Add Item
-      </button>
-    </div>
+    <button type="button" className="pay-bar" onClick={() => setStage('make')}>
+      <span>Add Item</span>
+      <span>{formatINR(item.price)}</span>
+    </button>
   ) : (
-    <div className="deal-bar">
-      <div className="deal-line">
-        <div>
-          <p className="deal-kicker">Current item</p>
-          <p className="deal-name">{item.name}</p>
-        </div>
-        <p className="deal-price">{preview.total === null ? '—' : formatINR(preview.total)}</p>
-      </div>
-      <button type="button" className="deal-go" disabled={Boolean(preview.error)} onClick={save}>
-        {initial ? 'Update cart' : 'Add to Cart'}
-      </button>
-    </div>
+    <button type="button" className="pay-bar" disabled={Boolean(preview.error)} onClick={save}>
+      <span>{initial ? 'Update cart' : 'Add to cart'}</span>
+      <span>{preview.total === null ? formatINR(item.price) : formatINR(preview.total)}</span>
+    </button>
   );
 
   return (
-    <Drawer key={stage} className={`item-flow ${stage === 'peek' ? 'peek-sheet' : 'make-sheet'}`} open chrome={false} title={item.name} onClose={dismiss} footer={footer}>
+    <Drawer
+      className={`item-flow ${stage === 'peek' ? 'peek-sheet' : 'make-sheet'}${leaving ? ' is-leaving' : ''}`}
+      open
+      chrome={false}
+      title={item.name}
+      onClose={dismiss}
+      footer={footer}
+    >
       {stage === 'peek' ? (
         <article className="peek">
           <div className="peek-hero">
-            <button type="button" className="peek-cancel" onClick={onClose}>Cancel</button>
+            <button type="button" className="peek-cancel" onClick={dismiss}>Cancel</button>
             {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <span className="peek-fallback" />}
           </div>
           <div className="peek-body">
@@ -155,7 +173,7 @@ export function ItemSheet({
               <>
                 <p className="peek-sub">
                   <strong>{fact.lead}</strong>
-                  <span> ({fact.titled}) - {fact.kcal} kcal</span>
+                  <span> ({fact.titled}) - {fact.kcal}</span>
                 </p>
                 <IngredientLine ids={fact.ingredients} />
               </>
@@ -179,12 +197,11 @@ export function ItemSheet({
                     <span className={item.isVeg ? 'mark veg' : 'mark nonveg'} aria-hidden="true" />
                     {item.isVeg ? 'Vegetarian' : 'Non-vegetarian'}
                   </p>
-                  {fact ? <span className="make-kcal">{fact.kcal} kcal</span> : null}
+                  {fact ? <span className="make-kcal">{fact.kcal}</span> : null}
                   <button type="button" className="text-reset on-hero" onClick={resetDrink}>Set to default</button>
                 </div>
                 <div className="make-full">
                   <h2>{item.name}</h2>
-                  <p className="make-desc">{item.description}</p>
                   {fact ? <IngredientLine ids={atLeastThree(fact.ingredients)} className="round" /> : null}
                 </div>
               </div>
@@ -192,7 +209,7 @@ export function ItemSheet({
           </div>
           <div className="make-panel">
             <div className="opt-head">
-              <h3>Customise your drink <em>{summary || 'Default'}</em></h3>
+              <h3>{item.categoryId === 'cat_drinks' ? 'Customise your drink' : 'Customise your plate'} <em>{summary || 'Default'}</em></h3>
             </div>
             {groups.map((group) => (
               <OptionBlock
@@ -248,13 +265,12 @@ function OptionBlock({
           <span>Choose one</span>
         </div>
         <div className="size-row">
-          <SizeCup label="Regular" price={0} scale={0.78} pressed={!chosen} onClick={() => onPick(group, null)} />
-          {group.addons.map((addon) => (
+          <SizeCup label="Small" price={0} pressed={!chosen} onClick={() => onPick(group, null)} />
+          {group.addons.filter((addon) => addon.isAvailable).map((addon) => (
             <SizeCup
               key={addon.id}
               label={addon.name}
               price={addon.price}
-              scale={1}
               pressed={selected.includes(addon.id)}
               disabled={!addon.isAvailable}
               onClick={() => onPick(group, addon.id)}
@@ -316,14 +332,12 @@ function OptionBlock({
 function SizeCup({
   label,
   price,
-  scale,
   pressed,
   disabled,
   onClick,
 }: {
   label: string;
   price: number;
-  scale: number;
   pressed: boolean;
   disabled?: boolean;
   onClick: () => void;
@@ -338,8 +352,9 @@ function SizeCup({
       onClick={onClick}
     >
       <span className="cup">
-        <img src={scale >= 1 ? '/ui/cup-large.png' : '/ui/cup-regular.png'} alt="" />
+        <img src="/ui/size-cup.png" alt="" />
       </span>
+      <span className="size-name">{label}</span>
       <span className="size-meta">{price > 0 ? `+${formatINR(price)}` : formatINR(0)}</span>
     </button>
   );

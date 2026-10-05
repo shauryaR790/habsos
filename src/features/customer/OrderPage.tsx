@@ -56,12 +56,20 @@ export function OrderPage() {
   }
 
   return (
-    <div className="guest narrow">
+    <div className="guest order-screen">
       <header className="guest-bar">
         <p className="wordmark">Order #{order.orderNumber}</p>
       </header>
-      <p className="guest-status">{statusMessage(order.status)}</p>
-      <main className="receipt">
+      <div className="order-hero" role="status">
+        <div className="placed-mark" aria-hidden="true">
+          <svg viewBox="0 0 72 72">
+            <circle className="placed-ring" cx="36" cy="36" r="32" />
+            <path className="placed-check" d="M22 37.5 32 47.5 51 26" />
+          </svg>
+        </div>
+        <p className="placed-kicker">{statusMessage(order.status)}</p>
+      </div>
+      <main className="receipt order-bill">
         <div className="badge-row">
           <StatusBadge status={order.status} />
           <PaymentBadge status={order.paymentStatus} />
@@ -97,8 +105,10 @@ export function OrderPage() {
           </ol>
         </section>
         {error ? <p className="field-error">{error}</p> : null}
-        <Link className="btn btn-primary" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>Back to menu</Link>
       </main>
+      <Link className="pay-bar" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>
+        <span>Back to menu</span>
+      </Link>
     </div>
   );
 }

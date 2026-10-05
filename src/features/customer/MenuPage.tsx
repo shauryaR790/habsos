@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { formatINR } from '../../../shared/domain';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
@@ -9,7 +8,9 @@ import { LoadingState } from '../../components/LoadingState';
 import { Modal } from '../../components/Modal';
 import { ProductCard } from '../../components/ProductCard';
 import { useCart, type Bootstrap, type CartLine } from './cart';
+import { CartPill } from './CartPill';
 import { ItemSheet } from './ItemSheet';
+import { COLD_DRINKS, RECOMMENDED } from './menuFacts';
 import { TableScanner } from './TableScanner';
 
 export function MenuPage() {
@@ -20,7 +21,8 @@ export function MenuPage() {
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<string | null>(null);
+  const [pane, setPane] = useState<'drinks' | 'food'>('drinks');
+  const [temperature, setTemperature] = useState<'all' | 'hot' | 'cold'>('all');
   const [sheet, setSheet] = useState<{ itemId: string; line?: CartLine } | null>(null);
 
   async function load() {
@@ -32,7 +34,6 @@ export function MenuPage() {
       cart.setCatalog(data);
       if (data.table) cart.setTableCode(data.table.name);
       else if (requested) cart.setTableCode(requested);
-      setActive(data.categories[0]?.id ?? null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Menu unavailable.');
     } finally {
@@ -75,35 +76,63 @@ export function MenuPage() {
 
   const catalog = cart.catalog;
   const sheetItem = catalog?.items.find((item) => item.id === sheet?.itemId) ?? null;
-  const recommended = catalog?.items.filter((item) => item.isAvailable).slice(0, 6) ?? [];
+  const available = catalog?.items.filter((item) => item.isAvailable) ?? [];
+  const categories = (catalog?.categories ?? [])
+    .filter((category) => available.some((item) => item.categoryId === category.id))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const foodCategories = categories.filter((category) => category.id !== 'cat_drinks');
+  const drinks = available
+    .filter((item) => item.categoryId === 'cat_drinks')
+    .filter((item) => temperature === 'all' || (temperature === 'cold' ? COLD_DRINKS.has(item.id) : !COLD_DRINKS.has(item.id)))
+    .sort((a, b) => {
+      if (a.id === 'item_mint_latte') return 1;
+      if (b.id === 'item_mint_latte') return -1;
+      return a.sortOrder - b.sortOrder;
+    });
+  const recommended = RECOMMENDED
+    .map((id) => available.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  function openSection(id: string) {
+    setPane(id === 'cat_drinks' ? 'drinks' : 'food');
+    window.setTimeout(() => {
+      document.getElementById(`cat-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
+  }
 
   return (
     <div className="guest">
       <a className="skip" href="#menu">Skip to menu</a>
       <header className="guest-bar">
-        <p className="wordmark">{catalog?.cafe.name ?? 'After Dunes'}</p>
+        <div className="brand-row">
+          <p className="wordmark">{catalog?.cafe.name ?? 'After Dunes'}</p>
+        </div>
         <div className="guest-tools">
-          <Link className="guest-bag" to="/cart" aria-label={cart.count ? `Cart, ${cart.count} items` : 'Cart'}>
-            Cart
+          <Link className="bag-btn" to="/cart" aria-label={cart.count ? `Cart, ${cart.count} items` : 'Cart'}>
+            <img src="/ui/cart.png" alt="" />
             {cart.count ? <span>{cart.count}</span> : null}
           </Link>
         </div>
       </header>
       {catalog ? (
-        <nav className="guest-tabs" aria-label="Categories">
-          {catalog.categories.map((category) => (
-            <button
-              key={category.id}
-              type="button"
-              className={active === category.id ? 'active' : undefined}
-              onClick={() => {
-                setActive(category.id);
-                document.getElementById(`cat-${category.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-            >
-              {category.name}
-            </button>
-          ))}
+        <nav className="guest-tabs" aria-label="Menu">
+          <button type="button" className={pane === 'drinks' ? 'active' : undefined} onClick={() => setPane('drinks')}>Drinks</button>
+          <button type="button" className={pane === 'food' ? 'active' : undefined} onClick={() => setPane('food')}>Food</button>
+        </nav>
+      ) : null}
+      <div className="menu-stage">
+      {categories.length ? (
+        <nav className="guest-rail" aria-label="Sections">
+          {categories.map((category) => {
+            const photo = available.find((item) => item.categoryId === category.id)?.imageUrl;
+            const on = pane === 'drinks' ? category.id === 'cat_drinks' : category.id !== 'cat_drinks';
+            return (
+              <button key={category.id} type="button" className={on ? 'rail-btn active' : 'rail-btn'} onClick={() => openSection(category.id)}>
+                {photo ? <img src={photo} alt="" /> : <span className="rail-dot" />}
+                <span>{category.name}</span>
+              </button>
+            );
+          })}
         </nav>
       ) : null}
       <main id="menu" className="guest-main">
@@ -126,8 +155,24 @@ export function MenuPage() {
             </div>
           </section>
         ) : null}
-        {catalog ? catalog.categories.map((category) => {
-          const items = catalog.items.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
+        {pane === 'drinks' ? (
+          <section id="cat-drinks" className="menu-block">
+            <h2>Drinks</h2>
+            <div className="temp-row" role="tablist" aria-label="Drink style">
+              {(['all', 'hot', 'cold'] as const).map((value) => (
+                <button key={value} type="button" className={temperature === value ? 'active' : undefined} onClick={() => setTemperature(value)}>
+                  {value === 'all' ? 'All' : value === 'hot' ? 'Hot' : 'Cold'}
+                </button>
+              ))}
+            </div>
+            <div className="order-list">
+              {drinks.map((item) => (
+                <ProductCard key={item.id} item={item} onSelect={(selected) => setSheet({ itemId: selected.id })} />
+              ))}
+            </div>
+          </section>
+        ) : foodCategories.map((category) => {
+          const items = available.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
           return (
             <section key={category.id} id={`cat-${category.id}`} className="menu-block">
               <h2>{category.name}</h2>
@@ -138,14 +183,10 @@ export function MenuPage() {
               </div>
             </section>
           );
-        }) : null}
+        })}
       </main>
-      {cart.count > 0 ? (
-        <Link className="cart-bar" to="/cart">
-          <span>View cart · {cart.count}</span>
-          <strong>{cart.totals ? formatINR(cart.totals.total) : 'Review'}</strong>
-        </Link>
-      ) : null}
+      </div>
+      <CartPill hidden={Boolean(sheet)} />
       {sheetItem && catalog ? (
         <ItemSheet
           item={sheetItem}

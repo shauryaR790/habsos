@@ -49,18 +49,18 @@ assert.equal(fresh.paymentStatus, 'UNPAID');
 assert.equal(fresh.tableName, 'T05');
 assert.equal(fresh.customerName, 'Arjun');
 assert.equal(fresh.items[0].nameSnapshot, 'Cappuccino');
-assert.equal(fresh.items[0].unitPrice, 160);
-assert.equal(fresh.items[0].addons.map((addon) => addon.nameSnapshot).join(','), 'Large,Oat Milk,Extra Shot');
-assert.equal(fresh.subtotal, 410);
-assert.equal(fresh.tax, 21);
-assert.equal(fresh.total, 431);
+assert.equal(fresh.items[0].unitPrice, 180);
+assert.equal(fresh.items[0].addons.map((addon) => addon.nameSnapshot).join(','), 'Tall,Oat Milk,Extra Shot');
+assert.equal(fresh.subtotal, 475);
+assert.equal(fresh.tax, 24);
+assert.equal(fresh.total, 499);
 assert.equal(fresh.events[0].message, 'Order placed');
 
-logic.updateMenuItem('item_cappuccino', { name: 'New Cappuccino', price: 180, description: 'Changed', isAvailable: true });
+logic.updateMenuItem('item_cappuccino', { name: 'New Cappuccino', price: 220, description: 'Changed', isAvailable: true });
 const historical = logic.getOrderByNumber(104);
 assert.equal(historical?.items[0].nameSnapshot, 'Cappuccino');
-assert.equal(historical?.items[0].unitPrice, 160);
-logic.updateMenuItem('item_cappuccino', { name: 'Cappuccino', price: 160, description: 'Espresso with steamed milk and a thick foam cap.', isAvailable: true });
+assert.equal(historical?.items[0].unitPrice, 180);
+logic.updateMenuItem('item_cappuccino', { name: 'Cappuccino', price: 180, description: 'Espresso with steamed milk and a thick foam cap.', isAvailable: true });
 
 assert.throws(() => logic.transitionOrder(fresh.id, 'PREPARING'), /Cannot move/);
 const readyNow = logic.transitionOrder(fresh.id, 'READY');
@@ -72,11 +72,11 @@ assert.throws(() => {
     tableCode: 'T04',
     customerName: 'Test',
     customerMobile: '9876500999',
-    items: [{ menuItemId: 'item_choc_muffin', quantity: 1, addonIds: ['addon_oat'] }],
+    items: [{ menuItemId: 'item_cheddar', quantity: 1, addonIds: ['addon_oat'] }],
   });
 }, /not available/);
 
-logic.updateMenuItem('item_espresso', { name: 'Espresso', description: 'A short, intense shot of coffee.', price: 120, isAvailable: false });
+logic.updateMenuItem('item_espresso', { name: 'Classic Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: false });
 assert.throws(() => {
   logic.createStaffOrder({
     tableCode: 'T04',
@@ -85,7 +85,7 @@ assert.throws(() => {
     items: [{ menuItemId: 'item_espresso', quantity: 1, addonIds: [] }],
   });
 }, /sold out/);
-logic.updateMenuItem('item_espresso', { name: 'Espresso', description: 'A short, intense shot of coffee.', price: 120, isAvailable: true });
+logic.updateMenuItem('item_espresso', { name: 'Classic Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: true });
 
 const clientKey = crypto.randomUUID();
 const pending = await logic.startCheckout({
@@ -93,14 +93,14 @@ const pending = await logic.startCheckout({
   customerName: 'Neel',
   customerMobile: '+91 98765 43210',
   clientKey,
-  items: [{ menuItemId: 'item_americano', quantity: 1, addonIds: ['addon_large'], notes: 'less ice' }],
+  items: [{ menuItemId: 'item_iced_americano', quantity: 1, addonIds: ['addon_tall'], notes: 'less ice' }],
 });
 assert.equal(pending.order.status, 'OTP_PENDING');
 assert.equal(pending.order.customerMobile, '9876543210');
-assert.equal(pending.order.total, Math.round(180 * 1.05) === 189 ? 189 : pending.order.total);
-const americano = 140 + 40;
+const americano = 210 + 40;
 assert.equal(pending.order.subtotal, americano);
 assert.equal(pending.order.tax, Math.round((americano * 500) / 10000));
+assert.equal(pending.order.total, 263);
 const code = otp.peekDevCode(pending.challengeId!);
 assert.ok(code);
 await assert.rejects(logic.verifyCheckout(pending.order.id, '000000'), /not correct/);
@@ -119,7 +119,7 @@ const again = logic.createStaffOrder({
   tableCode: 'T06',
   customerName: 'Neel',
   customerMobile: '9876543210',
-  items: [{ menuItemId: 'item_americano', quantity: 9, addonIds: [] }],
+  items: [{ menuItemId: 'item_iced_americano', quantity: 9, addonIds: [] }],
   clientKey: confirmed.id,
 });
 assert.equal(again.total, confirmed.total);
@@ -134,12 +134,12 @@ const synced = logic.applySyncBatch([
       tableCode: 'T07',
       customerName: 'Walk in',
       customerMobile: '',
-      items: [{ menuItemId: 'item_masala_chai', quantity: 1, addonIds: [] }],
+      items: [{ menuItemId: 'item_espresso', quantity: 1, addonIds: [] }],
     },
   },
 ]);
 assert.equal(synced[0].ok, true);
-assert.equal(synced[0].order?.total, 105);
+assert.equal(synced[0].order?.total, 158);
 assert.equal(synced[0].order?.source, 'POS');
 
 console.log('server tests passed');

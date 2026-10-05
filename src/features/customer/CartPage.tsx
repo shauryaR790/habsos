@@ -4,7 +4,6 @@ import { formatINR, taxLabel } from '../../../shared/domain';
 import { api } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { CartItem } from '../../components/CartItem';
-import { EmptyState } from '../../components/EmptyState';
 import { ItemSheet } from './ItemSheet';
 import { useCart, type Bootstrap } from './cart';
 
@@ -15,6 +14,7 @@ export function CartPage() {
   const tax = cart.catalog?.cafe.taxBps ?? 500;
   const editingLine = cart.lines.find((line) => line.lineId === editing) ?? null;
   const editingItem = cart.catalog?.items.find((item) => item.id === editingLine?.menuItemId) ?? null;
+  const menuHref = `/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`;
 
   useEffect(() => {
     if (cart.catalog) return;
@@ -28,38 +28,73 @@ export function CartPage() {
   }, [cart.catalog, cart.setCatalog, cart.setTableCode, cart.tableCode]);
 
   return (
-    <div className="guest narrow">
-      <header className="guest-bar">
-        <Link className="guest-back" to={`/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`}>Menu</Link>
-        <p className="wordmark">Your order</p>
+    <div className="guest cart-screen">
+      <header className="guest-bar cart-head">
+        <Link className="guest-back" to={menuHref} aria-label="Back to menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          Menu
+        </Link>
+        <p className="wordmark">Cart</p>
       </header>
-      <main className="guest-main stack">
-        {cart.lines.length === 0 ? <EmptyState title="Cart is empty" body="Add something from the menu." /> : null}
-        {cart.lineViews.map((line) => (
-          <CartItem
-            key={line.lineId}
-            line={line}
-            onInc={() => cart.setQty(line.lineId, line.quantity + 1)}
-            onDec={() => cart.setQty(line.lineId, line.quantity - 1)}
-            onRemove={() => cart.removeLine(line.lineId)}
-            onEdit={() => setEditing(line.lineId)}
-          />
-        ))}
-        {cart.totals ? (
-          <dl className="totals" aria-live="polite">
-            <div><dt>Subtotal</dt><dd>{formatINR(cart.totals.subtotal)}</dd></div>
-            {cart.totals.discount > 0 ? <div><dt>Discount</dt><dd>−{formatINR(cart.totals.discount)}</dd></div> : null}
-            <div><dt>Tax ({taxLabel(tax)})</dt><dd>{formatINR(cart.totals.tax)}</dd></div>
-            <div className="grand"><dt>Total</dt><dd>{formatINR(cart.totals.total)}</dd></div>
-          </dl>
-        ) : null}
+      <main className="guest-main cart-main">
+        {cart.lines.length === 0 ? (
+          <div className="cart-empty">
+            <span className="cart-empty-art">
+              <img src="/items/cut/cappuccino.png" alt="" />
+            </span>
+            <h1>Nothing in the bag</h1>
+            <p>Pick a drink or a plate and it lands right here.</p>
+          </div>
+        ) : (
+          <div className="cart-list">
+            {cart.lineViews.map((line) => (
+              <CartItem
+                key={line.lineId}
+                line={line}
+                imageUrl={cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl}
+                onInc={() => cart.setQty(line.lineId, line.quantity + 1)}
+                onDec={() => cart.setQty(line.lineId, line.quantity - 1)}
+                onRemove={() => cart.removeLine(line.lineId)}
+                onEdit={() => setEditing(line.lineId)}
+              />
+            ))}
+          </div>
+        )}
         {cart.quoteError ? <p className="field-error" role="alert">{cart.quoteError}</p> : null}
-        <div className="row-actions">
-          <Link className="btn btn-ghost" to={`/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`}>Add more</Link>
-          {cart.totals && cart.tableCode ? <Link className="btn btn-primary" to="/checkout">Checkout</Link> : <button type="button" className="btn btn-primary" disabled>Checkout</button>}
-        </div>
-        {!cart.tableCode ? <p className="fine">Checkout stays closed until a table QR is scanned.</p> : null}
       </main>
+      {cart.lines.length === 0 ? (
+        <div className="cart-end">
+          <Link className="pay-bar" to={menuHref}>
+            <span>Browse the menu</span>
+            <span className="pay-go" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </span>
+          </Link>
+        </div>
+      ) : null}
+      {cart.totals ? (
+        <div className="cart-end">
+          <footer className="cart-dock">
+            <dl>
+              <div><dt>Subtotal</dt><dd>{formatINR(cart.totals.subtotal)}</dd></div>
+              {cart.totals.discount > 0 ? <div><dt>Discount</dt><dd>−{formatINR(cart.totals.discount)}</dd></div> : null}
+              <div><dt>Tax ({taxLabel(tax)})</dt><dd>{formatINR(cart.totals.tax)}</dd></div>
+              <div className="grand"><dt>Total</dt><dd>{formatINR(cart.totals.total)}</dd></div>
+            </dl>
+          </footer>
+          {cart.tableCode ? (
+            <Link className="pay-bar" to="/checkout">
+              <span>Checkout</span>
+              <span>{formatINR(cart.totals.total)}</span>
+            </Link>
+          ) : (
+            <button type="button" className="pay-bar" disabled>
+              <span>Scan a table to checkout</span>
+              <span>{formatINR(cart.totals.total)}</span>
+            </button>
+          )}
+        </div>
+      ) : null}
       {editingItem && editingLine && cart.catalog ? (
         <ItemSheet
           item={editingItem}

@@ -1902,71 +1902,113 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: "Something went wrong.", code: "SERVER" });
 });
 
+// server/catalog.ts
+var CATEGORIES = [
+  ["cat_drinks", "Drinks", 1],
+  ["cat_canapes", "Canap\xE9s", 2],
+  ["cat_appetizers", "Appetizers", 3],
+  ["cat_salads", "Salads", 4],
+  ["cat_sliders", "Sliders", 5],
+  ["cat_mains", "Mains", 6]
+];
+var drink = (id, name, price, description, image, coffee = true) => ({
+  id,
+  name,
+  price,
+  description,
+  categoryId: "cat_drinks",
+  image,
+  coffee
+});
+var plate = (id, name, price, description, categoryId, image) => ({
+  id,
+  name,
+  price,
+  description,
+  categoryId,
+  image,
+  coffee: false
+});
+var MENU = [
+  drink("item_moroccan", "Moroccan Avocado Smoothie", 250, "Ripe avocado is blended with cold milk until the glass turns pale green and thick enough to hold a straw. A little citrus keeps it bright, so the avocado stays fresh instead of heavy. Poured into a 240 ml glass and served while the top is still frothy. This is a spoon-thick smoothie, not a juice.", "/items/cut/smoothie.png"),
+  drink("item_mint_latte", "Mint Latte", 185, "Espresso folded through steamed milk, with mint so the cup smells green before it tastes sweet. The milk is stretched glossy, not scalded, and the mint stays fresh instead of sharp. A short foam lid sits on top. Ask if you want it lightly sweet.", "/items/cut/mint.png"),
+  drink("item_espresso", "Classic Espresso", 150, "A short, concentrated shot pulled so the crema stays thick and the finish turns sweet before it goes sharp. Served in a warm cup with sparkling water on the side. Two sips, then it is gone. The crema should cover the surface.", "/items/cut/espresso.png"),
+  drink("item_cappuccino", "Cappuccino", 180, "Espresso under steamed milk and a dry foam cap tall enough to hold a spoon. The milk is stretched until glossy, then poured so the cap stays high instead of sinking into a latte. The cup is warmed before the pour. Foam should reach the rim.", "/items/cut/cappuccino.png"),
+  drink("item_mocha", "Chocolate Mocha", 220, "Cocoa melted into the espresso first, then milk poured through so the chocolate stays a little bitter rather than candy-sweet. The cocoa goes in before the milk, so it does not sit as powder at the bottom. Hot, and meant to be stirred once.", "/items/cut/mocha.png"),
+  drink("item_cold_brew", "Cold Brew", 210, "Coffee steeped cold for hours, then poured over ice so it stays smooth and low on bitterness. No blender, and no milk in the base glass. It should taste like coffee that has been patient, not like a watered-down iced americano. Drink it before the ice thins it.", "/items/cut/cold-brew.png"),
+  drink("item_iced_americano", "Iced Americano", 210, "Espresso poured over ice and cold water. The shot is hot when it hits the ice, so it chills without a blender watering it down. Darker and cleaner than an iced latte. No milk in the base glass. Finish it before the ice gives up.", "/items/cut/iced.png"),
+  drink("item_saigon", "Saigon Cold Brew", 230, "Cold brew sweetened with Vietnamese condensed milk until the glass ribbons tan and white. The milk is stirred through, not left as a puddle, so every sip is sweet and strong together. Iced, dense, and more dessert than a black cold brew.", "/items/cut/saigon.png"),
+  drink("item_sparkling", "Sparkling Espresso", 210, "Cold brew sweetened with condensed milk, then opened so the cup is sweet and cold. Ice first, coffee and milk through it. The published cup is that condensed-milk cold brew. Drink it while the glass is still cold.", "/items/cut/sparkling.png"),
+  drink("item_red_john", "Red John", 225, "Cold brew lengthened with orange and tonic until the glass is bright, bitter, and cold. The coffee is still there under the citrus. Built over ice so it stays lively instead of going flat. A long drink, not a shot.", "/items/cut/red-john.png"),
+  drink("item_tonic", "Cold Brew Tonic / Ginger Ale", 220, "Espresso or cold brew poured over ice and tonic, or ginger ale if you would rather the spice. The bubbles lift the coffee and keep it long and cold. Built in the glass, not shaken, so you can still see the ice.", "/items/cut/tonic.png"),
+  plate("item_halloumi", "Strawberry Waffle", 210, "A round waffle, crisp at the edge and soft in the pockets, with strawberries and a little syrup in the squares. Served warm so the fruit stays bright and the waffle has not gone soggy. Sweet, and meant to be eaten while it is still hot.", "cat_canapes", "/items/cut/waffle.png"),
+  plate("item_avocado_toast", "Butter Pancakes", 210, "A short stack of pancakes with butter on top and syrup running down the side. The centres stay soft and the edges are just browned. Served warm, as a plate, not a side. Eat them before the syrup soaks the stack through.", "cat_canapes", "/items/cut/pancakes.png"),
+  plate("item_cheddar", "Chocolate Chunk Cookies", 175, "Two thick cookies with chocolate chunks through the dough, baked so the edge is set and the middle is still a little soft. Served warm enough that the chocolate gives. A small plate, meant with coffee.", "cat_sliders", "/items/cut/cookies.png"),
+  plate("item_veg_club", "Veg Club Sandwich", 250, "A short, multi-layer vegetarian club. Toast, cheese, and salad stacked so each quarter stands up instead of sliding apart. The toast is dry enough to hold the tomato. Cut so you can see the layers. A small sandwich, not a doorstop.", "cat_sliders", "/items/cut/club.png"),
+  plate("item_croissant_sandwich", "Cold Croissant Sandwich", 185, "A croissant split and filled, then left so the pastry stays a little crisp against the filling. It is a sandwich you can pick up. Gone in a few bites. Eat it before the layers soften.", "cat_sliders", "/items/cut/croissant.png"),
+  plate("item_harvest", "Green Harvest Burger", 240, "A vegetable patty on a toasted bun, with tomato and greens so the patty still tastes like vegetables. Pressed just enough that it holds when you pick it up. Served hot. The patty should stay together in the bun.", "cat_sliders", "/items/cut/burger.png"),
+  plate("item_penne", "Penne Creme Pesto", 230, "Penne tossed in a creamy pesto until the sauce clings to the tubes instead of pooling in the bowl. Basil, cheese, and enough cream that it is soft, not oily. Served hot, as a full plate. The pesto should still taste green under the cream.", "cat_mains", "/items/cut/penne.png"),
+  plate("item_spaghetti", "Spaghetti Aglio e Olio", 230, "Spaghetti with garlic, olive oil, and chilli. No cream. The pasta water emulsifies the oil so it coats every strand, and the garlic is cooked sweet, not burnt. Chilli sits on the finish. A hot plate, glossy, and lighter than the pesto.", "cat_mains", "/items/cut/spaghetti.png"),
+  plate("item_paneer", "Marinated Grill Cottage Cheese", 265, "Cubes of paneer sat in a marinade, then cooked on the grill until the edges colour and the centre stays soft. Not a curry and not a fried nugget. Served hot, with the spice on the surface of the cheese. A full plate, eaten with a fork.", "cat_mains", "/items/cut/paneer.png")
+];
+
 // server/seed.ts
-var DRINKS = [
-  ["item_espresso", "Espresso", 120, "A short, intense shot of coffee. Pulled at 30ml so the crema stays thick and the finish turns sweet before it goes sharp. Medium-dark roast, stopped while the shot is still syrupy, served in a warm cup. The crema should cover the surface and smell like toasted cocoa."],
-  ["item_americano", "Americano", 140, "Espresso lengthened with hot water. A double shot opened with hot water, so it drinks long and clean without the bitterness of an over-extracted brew. Dark, hot, and meant to be sat with. Water goes in first, then the shot, so the crema stays on top."],
-  ["item_cappuccino", "Cappuccino", 160, "Espresso with steamed milk and a thick foam cap. The shot sits under a dry foam tall enough to hold a spoon, not a thin latte swirl. Milk is stretched until glossy, then poured so the cap stays high. The cup is warmed before the pour, and the foam should reach the rim."],
-  ["item_latte", "Cafe Latte", 170, "A longer milk coffee with a thin layer of foam. More milk than a cappuccino, with the espresso folded through so every sip is soft and even. The foam is a short lid, not a mound. The milk is steamed sweet, not scalded, and the shot is buried so the first sip is already mixed."],
-  ["item_mocha", "Mocha", 190, "Espresso, cocoa, and steamed milk. Dutch cocoa melted into the shot, then milk poured through it so the chocolate stays a little bitter rather than candy-sweet. A short cocoa dust on top. The cocoa is mixed into the espresso before the milk, so it does not sit as a powder at the bottom."],
-  ["item_iced_latte", "Iced Latte", 190, "Espresso and cold milk over ice. The shot is pulled hot and poured straight over ice and cold milk, so it chills without a blender watering it down. Drink it before the ice gives up. The glass is filled with ice first, then milk, then the shot, so the coffee ribbons through instead of sinking in one lump."],
-  ["item_cold_coffee", "Cold Coffee", 180, "Blended coffee, milk, and ice. Whipped until it is thick enough to hold a straw upright, with the coffee still tasting like coffee under the milk. Not a milkshake, and not a watery iced coffee. It comes out pale and frothy, with the ice broken fine so the cup stays cold to the last sip."],
-  ["item_matcha", "Matcha Latte", 210, "Ceremonial matcha whisked with milk. The tea is sifted and whisked before the milk goes in, so it stays grassy and vivid green instead of turning chalky. Ask if you want it lightly sweet. The bowl is whisked until the surface is even, then the milk is poured through."],
-  ["item_hot_chocolate", "Hot Chocolate", 180, "Warm cocoa with steamed milk. Real cocoa melted into hot milk until it is dense and a little bitter, not a powder packet. Served hot enough that the cup needs a minute in your hands. There is no espresso in it. The cocoa is dark, and the milk is steamed until the cup needs a minute in your hands."],
-  ["item_masala_chai", "Masala Chai", 100, "Black tea simmered with milk and spices. Ginger, cardamom, and a little black pepper boiled with the tea and milk, then strained. Spice comes first. Sugar, if you want it, comes second. It is boiled, not steeped, so the cup is strong and a little thick."]
-];
-var FOOD = [
-  ["item_butter_croissant", "Butter Croissant", 140, "Flaky, butter-laminated pastry. Folded so the layers shatter, with enough butter that the crumb stays tender instead of dry. Baked the same morning, and served warm if you are here early. The outside should crack when you tear it, and the inside should pull into thin sheets."],
-  ["item_choc_croissant", "Chocolate Croissant", 170, "Croissant with a dark chocolate baton. The same laminated dough, with a bar of dark chocolate baked into the centre so it stays soft in the middle and set at the ends. The chocolate is bitter enough to cut the butter."],
-  ["item_blueberry_muffin", "Blueberry Muffin", 130, "Soft muffin with blueberries. A tall dome, a tender crumb, and berries that burst instead of sinking into a wet streak. Sweet, but not so sweet that you lose the fruit. The top is baked until it just colours, and the berries are folded in whole."],
-  ["item_choc_muffin", "Chocolate Muffin", 130, "Cocoa muffin with chocolate chunks. Dark cocoa in the batter and chunks that stay soft in the middle. Dense rather than cakey, and still warm if the tray just came out. The crumb should be damp, not dry, and the chocolate should stretch a little when the muffin is split."],
-  ["item_garlic_bread", "Garlic Bread", 160, "Toasted bread with garlic butter. A split loaf brushed with butter, garlic, and parsley, then toasted until the edges crisp and the middle stays soft enough to pull apart. The garlic is cooked into the butter so it is sweet, not raw."],
-  ["item_grilled_cheese", "Grilled Cheese Sandwich", 220, "Cheese melted in toasted bread. Mature cheddar between bread buttered on the outside and cooked until the crumb is crisp and the cheese still stretches when you pull it. Pressed flat so the middle melts before the crust burns."],
-  ["item_veg_club", "Veg Club Sandwich", 240, "Toasted triple-layer sandwich with vegetables. Three slices of toast with cucumber, tomato, lettuce, and a little cheese, cut so the quarters stand up instead of sliding apart. The toast is dry enough to hold the tomato, and the layers are stacked even so each bite has bread, cheese, and salad."],
-  ["item_margherita", "Margherita Pizza", 280, "Tomato, mozzarella, and basil on a thin base. A personal pie with a blistered rim, crushed tomato, and mozzarella that pools instead of baking into a hard crust. Basil goes on after the oven. The centre stays soft, the rim should have a little chew, and it is cut into four."],
-  ["item_fries", "Peri Peri Fries", 190, "Fries tossed with peri peri salt. Twice-cooked until the edges shatter, then tossed with peri peri so the heat sits on the crust. No wet sauce drowning them. They come out hot and dry, with the spice on the surface rather than mixed into a powder pile at the bottom of the tray."],
-  ["item_paneer_wrap", "Paneer Wrap", 230, "Grilled paneer, salad, and mint in a wrap. Paneer seared until the edges brown, rolled with onion, cucumber, and mint. Built so it eats clean, not soggy. The bread is warmed, the salad is dried, and the mint is mixed through so it is not a puddle at one end."]
-];
-var MENU_IMAGES = {
-  item_espresso: "/items/espresso.jpg",
-  item_americano: "/items/americano.jpg",
-  item_cappuccino: "/items/cappuccino.jpg",
-  item_latte: "/items/latte.jpg",
-  item_mocha: "/items/mocha.jpg",
-  item_iced_latte: "/items/iced-latte.jpg",
-  item_cold_coffee: "/items/cold-coffee.jpg",
-  item_matcha: "/items/matcha.jpg",
-  item_hot_chocolate: "/items/hot-chocolate.jpg",
-  item_masala_chai: "/items/chai.jpg",
-  item_butter_croissant: "/items/butter-croissant.jpg",
-  item_choc_croissant: "/items/choc-croissant.jpg",
-  item_blueberry_muffin: "/items/blueberry-muffin.jpg",
-  item_choc_muffin: "/items/choc-muffin.jpg",
-  item_garlic_bread: "/items/garlic-bread.jpg",
-  item_grilled_cheese: "/items/grilled-cheese.jpg",
-  item_veg_club: "/items/veg-club.jpg",
-  item_margherita: "/items/pizza.jpg",
-  item_fries: "/items/fries.jpg",
-  item_paneer_wrap: "/items/paneer-wrap.jpg"
-};
-function applyMenuImages() {
-  for (const [id, url] of Object.entries(MENU_IMAGES)) {
-    run(`UPDATE menu_items SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '' OR image_url LIKE '/menu/%')`, [url, id]);
-  }
+function syncSizes() {
+  run(
+    `INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES ('addon_grande', 'group_size', 'Grande', 20, 1, 1)
+     ON CONFLICT(id) DO UPDATE SET name = 'Grande', price = 20, is_available = 1, sort_order = 1, group_id = 'group_size'`
+  );
+  run(
+    `INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES ('addon_tall', 'group_size', 'Tall', 40, 1, 2)
+     ON CONFLICT(id) DO UPDATE SET name = 'Tall', price = 40, is_available = 1, sort_order = 2, group_id = 'group_size'`
+  );
+  run(`UPDATE addons SET is_available = 0 WHERE group_id = 'group_size' AND id NOT IN ('addon_grande', 'addon_tall')`);
 }
-function applyMenuCopy() {
-  for (const item of [...DRINKS, ...FOOD]) {
-    run("UPDATE menu_items SET description = ? WHERE id = ?", [item[3], item[0]]);
+function syncMenu(now) {
+  for (const [id, name, sort] of CATEGORIES) {
+    run(
+      `INSERT INTO menu_categories (id, cafe_id, name, sort_order) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`,
+      [id, CAFE_ID, name, sort]
+    );
   }
+  MENU.forEach((dish, index) => {
+    run(
+      `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, sort_order, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         category_id = excluded.category_id,
+         name = excluded.name,
+         description = excluded.description,
+         price = excluded.price,
+         image_url = excluded.image_url,
+         is_veg = 1,
+         is_available = 1,
+         sort_order = excluded.sort_order,
+         updated_at = excluded.updated_at`,
+      [dish.id, CAFE_ID, dish.categoryId, dish.name, dish.description, dish.price, dish.image, index + 1, now]
+    );
+    run("DELETE FROM menu_item_addon_groups WHERE menu_item_id = ?", [dish.id]);
+    if (dish.coffee) {
+      for (const groupId of ["group_size", "group_milk", "group_extras"]) {
+        run("INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)", [dish.id, groupId]);
+      }
+    }
+  });
+  const ids = MENU.map((dish) => dish.id);
+  run(
+    `UPDATE menu_items SET is_available = 0 WHERE cafe_id = ? AND id NOT IN (${ids.map(() => "?").join(",")})`,
+    [CAFE_ID, ...ids]
+  );
 }
 async function seed() {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
   if (get("SELECT id FROM cafes WHERE id = ?", [CAFE_ID])) {
     run(`UPDATE cafes SET name = 'After Dunes' WHERE id = ? AND name = 'Habsos'`, [CAFE_ID]);
-    applyMenuImages();
-    applyMenuCopy();
+    syncSizes();
+    syncMenu(now);
     return;
   }
-  const now = (/* @__PURE__ */ new Date()).toISOString();
   run("INSERT INTO cafes (id, name, tax_bps, currency, timezone, created_at) VALUES (?, ?, 500, ?, ?, ?)", [CAFE_ID, "After Dunes", "INR", "Asia/Kolkata", now]);
   run("INSERT INTO order_counters (cafe_id, next_number) VALUES (?, 101)", [CAFE_ID]);
   const password = await hashPassword(env.adminPassword);
@@ -1979,24 +2021,16 @@ async function seed() {
     "staff",
     now
   ]);
-  run("INSERT INTO menu_categories (id, cafe_id, name, sort_order) VALUES (?, ?, ?, ?)", ["cat_drinks", CAFE_ID, "Drinks", 1]);
-  run("INSERT INTO menu_categories (id, cafe_id, name, sort_order) VALUES (?, ?, ?, ?)", ["cat_food", CAFE_ID, "Food", 2]);
-  DRINKS.forEach((item, index) => insertItem(item, "cat_drinks", index + 1, now));
-  FOOD.forEach((item, index) => insertItem(item, "cat_food", index + 11, now));
   run("INSERT INTO addon_groups (id, cafe_id, name, min_select, max_select, sort_order) VALUES (?, ?, ?, 0, 1, 1)", ["group_size", CAFE_ID, "Size"]);
   run("INSERT INTO addon_groups (id, cafe_id, name, min_select, max_select, sort_order) VALUES (?, ?, ?, 0, 1, 2)", ["group_milk", CAFE_ID, "Milk"]);
   run("INSERT INTO addon_groups (id, cafe_id, name, min_select, max_select, sort_order) VALUES (?, ?, ?, 0, 3, 3)", ["group_extras", CAFE_ID, "Extras"]);
-  insertAddon("addon_large", "group_size", "Large", 40, 1);
+  syncSizes();
   insertAddon("addon_oat", "group_milk", "Oat Milk", 30, 1);
   insertAddon("addon_almond", "group_milk", "Almond Milk", 40, 2);
   insertAddon("addon_extra_shot", "group_extras", "Extra Shot", 50, 1);
   insertAddon("addon_caramel", "group_extras", "Caramel Syrup", 30, 2);
   insertAddon("addon_cream", "group_extras", "Whipped Cream", 30, 3);
-  for (const drink of DRINKS) {
-    for (const groupId of ["group_size", "group_milk", "group_extras"]) {
-      run("INSERT INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)", [drink[0], groupId]);
-    }
-  }
+  syncMenu(now);
   for (let index = 1; index <= 10; index += 1) {
     const name = `T${String(index).padStart(2, "0")}`;
     run("INSERT INTO tables (id, cafe_id, name, qr_code, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [`table_${name.toLowerCase()}`, CAFE_ID, name, name, "AVAILABLE", now]);
@@ -2007,8 +2041,8 @@ async function seed() {
     customerName: "Meera",
     customerMobile: "9876500101",
     items: [
-      { menuItemId: "item_masala_chai", quantity: 2, addonIds: [] },
-      { menuItemId: "item_butter_croissant", quantity: 1, addonIds: [] }
+      { menuItemId: "item_espresso", quantity: 2, addonIds: [] },
+      { menuItemId: "item_halloumi", quantity: 1, addonIds: [] }
     ]
   });
   for (const status of ["READY", "SERVED", "COMPLETED"]) transitionOrder(completed.id, status);
@@ -2019,8 +2053,8 @@ async function seed() {
     customerName: "Rohan",
     customerMobile: "9876500102",
     items: [
-      { menuItemId: "item_iced_latte", quantity: 1, addonIds: ["addon_almond"] },
-      { menuItemId: "item_fries", quantity: 1, addonIds: [] }
+      { menuItemId: "item_iced_americano", quantity: 1, addonIds: ["addon_almond"] },
+      { menuItemId: "item_veg_club", quantity: 1, addonIds: [] }
     ]
   });
   transitionOrder(ready.id, "READY");
@@ -2030,8 +2064,8 @@ async function seed() {
     customerName: "Priya",
     customerMobile: "9876500103",
     items: [
-      { menuItemId: "item_latte", quantity: 1, addonIds: ["addon_oat"] },
-      { menuItemId: "item_blueberry_muffin", quantity: 1, addonIds: [] }
+      { menuItemId: "item_mocha", quantity: 1, addonIds: ["addon_oat"] },
+      { menuItemId: "item_penne", quantity: 1, addonIds: [] }
     ]
   });
   retimeOrder(preparing.id, ago(18));
@@ -2040,20 +2074,11 @@ async function seed() {
     customerName: "Arjun",
     customerMobile: "9876500104",
     items: [
-      { menuItemId: "item_cappuccino", quantity: 1, addonIds: ["addon_large", "addon_oat", "addon_extra_shot"] },
-      { menuItemId: "item_choc_muffin", quantity: 1, addonIds: [] }
+      { menuItemId: "item_cappuccino", quantity: 1, addonIds: ["addon_tall", "addon_oat", "addon_extra_shot"] },
+      { menuItemId: "item_cheddar", quantity: 1, addonIds: [] }
     ]
   });
   retimeOrder(fresh.id, ago(6));
-  applyMenuImages();
-  applyMenuCopy();
-}
-function insertItem(item, categoryId, sortOrder, now) {
-  run(
-    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, sort_order, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, 1, 1, ?, ?)`,
-    [item[0], CAFE_ID, categoryId, item[1], item[3], item[2], sortOrder, now]
-  );
 }
 function insertAddon(id, groupId, name, price, sortOrder) {
   run("INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES (?, ?, ?, ?, 1, ?)", [id, groupId, name, price, sortOrder]);
