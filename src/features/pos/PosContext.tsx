@@ -19,6 +19,7 @@ import {
   type TableInfo,
   type TableStatus,
 } from '../../../shared/domain';
+import { pushOrderAlert } from '../../components/OrderAlert';
 import { pushToast } from '../../components/Toast';
 import type { ConnState } from '../../components/ConnectionStatus';
 import { deviceId, enqueue, habdb, pendingQueue, readCatalog, writeCatalog, type LocalCatalog, type QueueOp } from '../../db/idb';
@@ -321,10 +322,28 @@ export function PosProvider({ children }: { children: ReactNode }) {
         const data = JSON.parse(event.data) as { type?: string; order?: Order; item?: MenuItem; addon?: Addon; tableId?: string };
         if (!data.type || data.type === 'ping') return;
         if (data.type === 'order.upsert' && data.order) {
+          const incoming = data.order;
           void pendingQueue().then((queued) => {
-            if (queued.some((op) => op.entityId === data.order?.id)) return;
-            void habdb.orders.put(data.order!);
-            setOrders((current) => sortOrders([data.order!, ...current.filter((order) => order.id !== data.order?.id)]));
+            if (queued.some((op) => op.entityId === incoming.id)) return;
+            void habdb.orders.put(incoming);
+            setOrders((current) => {
+              const existing = current.find((order) => order.id === incoming.id);
+              const landed =
+                incoming.source === 'QR'
+                && incoming.status === 'CONFIRMED'
+                && incoming.orderNumber > 0
+                && (!existing || existing.status === 'OTP_PENDING');
+              if (landed) {
+                pushOrderAlert({
+                  orderId: incoming.id,
+                  orderNumber: incoming.orderNumber,
+                  tableName: incoming.tableName,
+                  customerName: incoming.customerName,
+                  total: incoming.total,
+                });
+              }
+              return sortOrders([incoming, ...current.filter((order) => order.id !== incoming.id)]);
+            });
           });
         }
         if (data.type === 'menu.updated' && data.item) {

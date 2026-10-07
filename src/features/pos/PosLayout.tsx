@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Modal } from '../../components/Modal';
+import { OrderAlertHost } from '../../components/OrderAlert';
 import { pushToast } from '../../components/Toast';
 import { OPEN_STATUSES, registerPath } from '../../../shared/domain';
 import { readCurrentOrder } from '../../lib/currentOrder';
@@ -76,6 +77,7 @@ export function PosLayout() {
 
   return (
     <div className="pos">
+      <OrderAlertHost />
       <div className="pos-main">
         <header className="pos-chrome no-print">
           <button type="button" className="pos-burger" aria-label="Open menu" onClick={() => setMenu(true)}>
