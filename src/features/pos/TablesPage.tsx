@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   dueTotal,
@@ -20,6 +20,16 @@ import { printTableQr } from '../../lib/printQr';
 import { useTitle } from '../../lib/useTitle';
 import { usePos } from './PosContext';
 import QRCode from 'qrcode';
+
+function fitCtxMenuPoint(x: number, y: number, width: number, height: number) {
+  const inset = 12;
+  const maxX = Math.max(inset, window.innerWidth - width - inset);
+  const maxY = Math.max(inset, window.innerHeight - height - inset);
+  return {
+    x: Math.min(Math.max(inset, x), maxX),
+    y: Math.min(Math.max(inset, y), maxY),
+  };
+}
 
 const LEGEND: Array<{ id: TableVisualState; label: string }> = [
   { id: 'blank', label: 'Blank Table' },
@@ -57,6 +67,7 @@ export function TablesPage() {
   const [addArea, setAddArea] = useState<TableArea>('Ground Floor');
   const [busy, setBusy] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ table: TableInfo; x: number; y: number } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30000);
@@ -83,6 +94,15 @@ export function TablesPage() {
     && (!contactTable || order.tableId === contactTable)
   ));
   const dueCount = pos.orders.filter((order) => order.paymentStatus === 'UNPAID' && OPEN_STATUSES.includes(order.status)).length;
+
+  useLayoutEffect(() => {
+    if (!ctxMenu || !ctxRef.current) return;
+    const { width, height } = ctxRef.current.getBoundingClientRect();
+    const next = fitCtxMenuPoint(ctxMenu.x, ctxMenu.y, width, height);
+    if (next.x !== ctxMenu.x || next.y !== ctxMenu.y) {
+      setCtxMenu((current) => (current ? { ...current, ...next } : current));
+    }
+  }, [ctxMenu?.table.id]);
 
   useEffect(() => {
     if (!contact?.qrCode || dialog !== 'contactless') {
@@ -291,7 +311,8 @@ export function TablesPage() {
                     onClick={() => openTable(table)}
                     onContextMenu={(event) => {
                       event.preventDefault();
-                      setCtxMenu({ table, x: event.clientX, y: event.clientY });
+                      const point = fitCtxMenuPoint(event.clientX, event.clientY, 172, 252);
+                      setCtxMenu({ table, ...point });
                     }}
                   >
                     <strong>{tableLabel(table.name)}</strong>
@@ -417,6 +438,7 @@ export function TablesPage() {
 
       {ctxMenu ? (
         <div
+          ref={ctxRef}
           className="tv-ctx"
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
           role="menu"

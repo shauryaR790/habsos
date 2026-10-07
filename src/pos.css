@@ -1478,6 +1478,9 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   position: fixed;
   z-index: 40;
   min-width: 10rem;
+  max-width: min(14rem, calc(100vw - 24px));
+  max-height: min(70vh, calc(100dvh - 24px));
+  overflow-y: auto;
   background: #fff;
   border: 1px solid #ccc;
   box-shadow: 0 8px 24px rgb(0 0 0 / 15%);
