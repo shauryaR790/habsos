@@ -1647,9 +1647,33 @@ html:has(.guest) *::-webkit-scrollbar { display: none; width: 0; height: 0; }
     flex: none;
   }
   .cart-screen-empty .cart-layout {
-    grid-template-columns: 1fr;
-    justify-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-height: calc(100dvh - 72px);
+    padding: 32px 24px 64px;
     text-align: center;
+  }
+  .cart-screen-empty .guest-main.cart-main {
+    width: min(520px, 100%);
+    margin: 0 auto;
+    align-items: center;
+  }
+  .cart-screen-empty .cart-page-head {
+    text-align: center;
+    width: 100%;
+    margin-bottom: 4px;
+  }
+  .cart-screen-empty .cart-empty {
+    min-height: auto;
+    width: 100%;
+    padding-top: 8px;
+  }
+  .cart-screen-empty .cart-end-empty {
+    width: min(360px, 100%);
+    margin-top: 28px;
   }
   .cart-screen .guest-main.cart-main {
     width: auto;
