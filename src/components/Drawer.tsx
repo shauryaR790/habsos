@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { acquireScrollLock } from '../lib/scrollLock';
 import { Button } from './Button';
 
 export function Drawer({
@@ -27,10 +28,10 @@ export function Drawer({
       if (event.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    document.body.classList.add('lock-scroll');
+    const releaseScroll = acquireScrollLock();
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.classList.remove('lock-scroll');
+      releaseScroll();
       previous?.focus();
     };
   }, [open, onClose]);

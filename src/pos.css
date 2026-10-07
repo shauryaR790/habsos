@@ -7,25 +7,10 @@
   Default UI density matches ~125% browser zoom (demo / counter readability).
 */
 
-html:has(.pos),
-html:has(.login) {
-  zoom: 1.25;
-  height: 100%;
-  overflow: hidden;
-}
-body:has(.pos),
-body:has(.login) {
-  height: 100%;
-  overflow: hidden;
-}
-body:has(.pos) #root,
-body:has(.login) #root {
-  height: 100%;
-  overflow: hidden;
-}
-
+/* 125% density on the register shell only — never on html (that breaks page scroll on guest + PWA). */
 .pos,
 .login {
+  zoom: 1.25;
   --ink: #212121;
   --paper: #fff;
   --fill: #f5f5f5;
@@ -360,6 +345,10 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .pos-content.pos-fill {
   padding: 0;
@@ -1305,7 +1294,16 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 .tv-leg-running-kot i { background: #ffe082; border-color: #ffb300; border-style: solid; }
 .tv-leg-reserved i { background: #bbdefb; border-color: #1e88e5; border-style: solid; }
 .tv-leg-otp-wait i { background: #e1bee7; border-color: #8e24aa; border-style: dashed; }
-.tv-body { display: grid; gap: 18px; }
+.tv-body {
+  display: grid;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .tv-area h2 {
   margin: 0 0 8px;
   font-size: 13px;

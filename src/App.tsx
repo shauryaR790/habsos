@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useLayoutEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingState } from './components/LoadingState';
 import { ToastHost } from './components/Toast';
@@ -10,13 +10,34 @@ import { MenuPage } from './features/customer/MenuPage';
 import { OrderPage } from './features/customer/OrderPage';
 import { TableQrPage } from './features/customer/TableQrPage';
 import { LoginPage } from './features/pos/LoginPage';
+import { resetScrollLock } from './lib/scrollLock';
 
 const PosShell = lazy(() => import('./features/pos/PosShell'));
+
+function clearDocumentScrollLock() {
+  resetScrollLock();
+  const root = document.getElementById('root');
+  for (const el of [document.documentElement, document.body, root]) {
+    if (!el) continue;
+    el.style.removeProperty('overflow');
+    el.style.removeProperty('height');
+    el.style.removeProperty('max-height');
+  }
+}
+
+function ScrollUnlock() {
+  const { pathname } = useLocation();
+  useLayoutEffect(() => {
+    clearDocumentScrollLock();
+  }, [pathname]);
+  return null;
+}
 
 export function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <ScrollUnlock />
         <ToastHost />
         <CartProvider>
           <Routes>
