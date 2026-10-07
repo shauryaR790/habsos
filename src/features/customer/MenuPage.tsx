@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
@@ -13,6 +13,7 @@ import { ItemSheet } from './ItemSheet';
 import { isColdMenuItem } from '../../../shared/menuDisplay';
 import { RECOMMENDED } from './menuFacts';
 import { TableScanner } from './TableScanner';
+import { GuestHeader } from './GuestHeader';
 
 export function MenuPage() {
   useTitle('Menu');
@@ -25,6 +26,7 @@ export function MenuPage() {
   const [pane, setPane] = useState<'drinks' | 'food'>('drinks');
   const [temperature, setTemperature] = useState<'all' | 'hot' | 'cold'>('all');
   const [sheet, setSheet] = useState<{ itemId: string; line?: CartLine } | null>(null);
+  const [search, setSearch] = useState('');
 
   async function load() {
     setLoading(true);
@@ -82,9 +84,15 @@ export function MenuPage() {
     .filter((category) => available.some((item) => item.categoryId === category.id))
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const foodCategories = categories.filter((category) => category.id !== 'cat_drinks');
+  const needle = search.trim().toLowerCase();
+  const matchesSearch = (name: string, description: string) => {
+    if (!needle) return true;
+    return name.toLowerCase().includes(needle) || description.toLowerCase().includes(needle);
+  };
   const drinks = available
     .filter((item) => item.categoryId === 'cat_drinks')
     .filter((item) => temperature === 'all' || (temperature === 'cold' ? isColdMenuItem(item) : !isColdMenuItem(item)))
+    .filter((item) => matchesSearch(item.name, item.description))
     .sort((a, b) => {
       if (a.id === 'item_mint_latte') return 1;
       if (b.id === 'item_mint_latte') return -1;
@@ -104,19 +112,19 @@ export function MenuPage() {
   return (
     <div className="guest">
       <a className="skip" href="#menu">Skip to menu</a>
-      <header className="guest-bar">
-        <div className="brand-row">
-          <p className="wordmark">{catalog?.cafe.name ?? 'After Dunes'}</p>
-        </div>
-        <div className="guest-tools">
-          <Link className="bag-btn" to="/cart" aria-label={cart.count ? `Cart, ${cart.count} items` : 'Cart'}>
-            <img src="/ui/cart.png" alt="" />
-            {cart.count ? <span>{cart.count}</span> : null}
-          </Link>
-        </div>
-      </header>
+      <GuestHeader
+        brand={catalog?.cafe.name ?? 'After Dunes'}
+        active="menu"
+        pane={pane}
+        onPane={setPane}
+        search={search}
+        onSearch={setSearch}
+        onScan={() => setScanning(true)}
+        cartCount={cart.count}
+        showMenuNav
+      />
       {catalog ? (
-        <nav className="guest-tabs" aria-label="Menu">
+        <nav className="guest-tabs guest-tabs-mobile" aria-label="Menu">
           <button type="button" className={pane === 'drinks' ? 'active' : undefined} onClick={() => setPane('drinks')}>Drinks</button>
           <button type="button" className={pane === 'food' ? 'active' : undefined} onClick={() => setPane('food')}>Food</button>
         </nav>
@@ -173,7 +181,10 @@ export function MenuPage() {
             </div>
           </section>
         ) : foodCategories.map((category) => {
-          const items = available.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
+          const items = available
+            .filter((item) => item.categoryId === category.id)
+            .filter((item) => matchesSearch(item.name, item.description))
+            .sort((a, b) => a.sortOrder - b.sortOrder);
           return (
             <section key={category.id} id={`cat-${category.id}`} className="menu-block">
               <h2>{category.name}</h2>

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatINR, maskMobile, normalizeMobile, type GuestPaymentPreference, type PublicOrder } from '../../../shared/domain';
+import { formatINR, maskMobile, normalizeMobile, taxLabel, type GuestPaymentPreference, type PublicOrder } from '../../../shared/domain';
+import { Modal } from '../../components/Modal';
+import { GuestHeader } from './GuestHeader';
+import { TableScanner } from './TableScanner';
 import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
@@ -36,6 +39,9 @@ export function CheckoutPage() {
   const [placed, setPlaced] = useState<PublicOrder | null>(null);
   const [payPref, setPayPref] = useState<GuestPaymentPreference>('DESK');
   const [address, setAddress] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [search, setSearch] = useState('');
+  const tax = cart.catalog?.cafe.taxBps ?? 500;
 
   useEffect(() => {
     if (cart.catalog) return;
@@ -47,6 +53,17 @@ export function CheckoutPage() {
       })
       .catch(() => undefined);
   }, [cart.catalog, cart.setCatalog, cart.setTableCode, cart.tableCode]);
+
+  const onTable = useCallback((code: string) => {
+    setScanning(false);
+    cart.setTableCode(code);
+    void api<Bootstrap>(`/api/bootstrap?table=${encodeURIComponent(code)}`)
+      .then((data) => {
+        cart.setCatalog(data);
+        if (data.table) cart.setTableCode(data.table.name);
+      })
+      .catch(() => undefined);
+  }, [cart]);
 
   useEffect(() => {
     if (wait <= 0) return;
@@ -62,8 +79,19 @@ export function CheckoutPage() {
 
   if (!cart.tableCode || cart.lines.length === 0) {
     return (
-      <div className="guest cart-screen">
-        <header className="guest-bar cart-head">
+      <div className="guest cart-screen checkout-screen checkout-screen-empty">
+        <div className="guest-desktop-head">
+          <GuestHeader
+            brand={cart.catalog?.cafe.name ?? 'After Dunes'}
+            active="cart"
+            search={search}
+            onSearch={setSearch}
+            onScan={() => setScanning(true)}
+            cartCount={cart.count}
+            showMenuNav
+          />
+        </div>
+        <header className="guest-bar cart-head guest-bar-mobile-only">
           <Link className="guest-back" to={menuHref} aria-label="Back to menu">
             <Chevron />
             Menu
@@ -77,6 +105,9 @@ export function CheckoutPage() {
             <Link className="btn btn-primary" to={menuHref}>Back to menu</Link>
           </div>
         </main>
+        <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
+          {scanning ? <TableScanner onTable={onTable} /> : null}
+        </Modal>
       </div>
     );
   }
@@ -186,9 +217,41 @@ export function CheckoutPage() {
     }
   }
 
+  const orderList = (
+    <ul>
+      {cart.lineViews.map((line) => {
+        const photo = cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl;
+        return (
+          <li key={line.lineId}>
+            <figure>
+              {photo ? <img src={photo} alt="" /> : <span className="check-shot" />}
+              {line.quantity > 1 ? <span className="check-qty">{line.quantity}</span> : null}
+            </figure>
+            <div className="check-line-copy">
+              <strong>{line.name}</strong>
+              {line.addons.length ? <em>{line.addons.map((addon) => addon.name).join(' · ')}</em> : null}
+              {line.total != null ? <span className="check-line-price">{formatINR(line.total)}</span> : null}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
-    <div className={`guest cart-screen${otp ? ' is-otp' : ''}`}>
-      <header className="guest-bar cart-head">
+    <div className={`guest cart-screen checkout-screen${otp ? ' checkout-screen-otp' : ''}`}>
+      <div className="guest-desktop-head">
+        <GuestHeader
+          brand={cart.catalog?.cafe.name ?? 'After Dunes'}
+          active="cart"
+          search={search}
+          onSearch={setSearch}
+          onScan={() => setScanning(true)}
+          cartCount={cart.count}
+          showMenuNav
+        />
+      </div>
+      <header className="guest-bar cart-head guest-bar-mobile-only">
         {otp ? (
           <button
             type="button"
@@ -211,72 +274,101 @@ export function CheckoutPage() {
         )}
         <p className="wordmark">{otp ? 'Verify' : 'Checkout'}</p>
       </header>
-      <main className="guest-main checkout-main">
-        {otp ? (
-          <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
-            <p className="table-stamp">Table {cart.tableCode}</p>
-            <h1>The table is waiting</h1>
-            <p className="otp-lead">A 6-digit code is on its way to</p>
-            <p className="otp-phone">{maskMobile(otp.mobile)}</p>
-            <OtpBoxes value={code} onChange={fillCode} />
-            {otp.devCode ? (
-              <button type="button" className="otp-dev" onClick={() => fillCode(otp.devCode ?? '')}>
-                Tap to fill {otp.devCode}
-              </button>
-            ) : null}
-            <button type="button" className="otp-resend" disabled={wait > 0 || busy} onClick={() => void resend()}>
-              {wait > 0 ? `Resend in ${wait}s` : 'Send a new code'}
-            </button>
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-            {cart.totals ? <p className="otp-total">Then we send {formatINR(cart.totals.total)} to the kitchen</p> : null}
-          </form>
-        ) : (
-          <form id="checkout-form" className="check-form" onSubmit={(event) => void start(event)}>
-            <p className="table-stamp">Table {cart.tableCode}</p>
-            <section className="check-guest">
-              <h2>Who’s at the table</h2>
-              <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
-              <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
-              <Input label="Address" value={address} onChange={(event) => setAddress(event.target.value)} />
-              <label className="field">
-                <span>Payment method</span>
-                <select
-                  value={payPref}
-                  aria-label="Payment method"
-                  onChange={(event) => setPayPref(event.target.value as GuestPaymentPreference)}
-                >
-                  <option value="DESK">Pay at desk</option>
-                  <option value="UPI">UPI online</option>
-                  <option value="CARD">Card online</option>
-                </select>
-              </label>
-              {payPref !== 'DESK' && !cart.catalog?.payments?.razorpayKeyId ? (
-                <p className="fine">Online pay is not configured — you can still order and pay at the desk.</p>
+      <div className="checkout-layout">
+        <main className="guest-main checkout-main">
+          <header className="checkout-page-head">
+            <h1 className="checkout-page-title">{otp ? 'Verify your mobile' : 'Checkout'}</h1>
+            {cart.tableCode ? <p className="checkout-page-meta">Table {cart.tableCode}</p> : null}
+          </header>
+          {otp ? (
+            <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
+              <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p>
+              <h1>The table is waiting</h1>
+              <p className="otp-lead">A 6-digit code is on its way to</p>
+              <p className="otp-phone">{maskMobile(otp.mobile)}</p>
+              <OtpBoxes value={code} onChange={fillCode} />
+              {otp.devCode ? (
+                <button type="button" className="otp-dev" onClick={() => fillCode(otp.devCode ?? '')}>
+                  Tap to fill {otp.devCode}
+                </button>
               ) : null}
-            </section>
+              <button type="button" className="otp-resend" disabled={wait > 0 || busy} onClick={() => void resend()}>
+                {wait > 0 ? `Resend in ${wait}s` : 'Send a new code'}
+              </button>
+              {error ? <p className="field-error" role="alert">{error}</p> : null}
+              {cart.totals ? <p className="otp-total">Then we send {formatINR(cart.totals.total)} to the kitchen</p> : null}
+              <button
+                type="submit"
+                className="pay-bar checkout-desktop-cta"
+                disabled={busy || code.length !== 6}
+                aria-busy={busy}
+              >
+                <span>{busy ? 'Placing order…' : 'Place order'}</span>
+                {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
+              </button>
+            </form>
+          ) : (
+            <form id="checkout-form" className="check-form" onSubmit={(event) => void start(event)}>
+              <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p>
+              <section className="check-guest">
+                <h2>Who’s at the table</h2>
+                <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
+                <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
+                <Input label="Address" value={address} onChange={(event) => setAddress(event.target.value)} />
+                <label className="field">
+                  <span>Payment method</span>
+                  <select
+                    value={payPref}
+                    aria-label="Payment method"
+                    onChange={(event) => setPayPref(event.target.value as GuestPaymentPreference)}
+                  >
+                    <option value="DESK">Pay at desk</option>
+                    <option value="UPI">UPI online</option>
+                    <option value="CARD">Card online</option>
+                  </select>
+                </label>
+                {payPref !== 'DESK' && !cart.catalog?.payments?.razorpayKeyId ? (
+                  <p className="fine">Online pay is not configured — you can still order and pay at the desk.</p>
+                ) : null}
+              </section>
+              <section className="check-order checkout-order-mobile" aria-label="This order">
+                <h2>This order</h2>
+                {orderList}
+              </section>
+              {cart.quoteError ? <p className="field-error">{cart.quoteError}</p> : null}
+              {error ? <p className="field-error" role="alert">{error}</p> : null}
+            </form>
+          )}
+        </main>
+        {!otp ? (
+          <aside className="checkout-summary" aria-label="Order summary">
             <section className="check-order">
-              <h2>This order</h2>
-              <ul>
-                {cart.lineViews.map((line) => {
-                  const photo = cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl;
-                  return (
-                    <li key={line.lineId}>
-                      <figure>
-                        {photo ? <img src={photo} alt="" /> : <span className="check-shot" />}
-                        {line.quantity > 1 ? <span className="check-qty">{line.quantity}</span> : null}
-                      </figure>
-                      <strong>{line.name}</strong>
-                      {line.addons.length ? <em>{line.addons.map((addon) => addon.name).join(' · ')}</em> : null}
-                    </li>
-                  );
-                })}
-              </ul>
+              <h2 className="checkout-summary-title">This order</h2>
+              {orderList}
             </section>
-            {cart.quoteError ? <p className="field-error">{cart.quoteError}</p> : null}
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-          </form>
-        )}
-      </main>
+            {cart.totals ? (
+              <footer className="cart-dock checkout-totals">
+                <dl>
+                  <div><dt>Subtotal</dt><dd>{formatINR(cart.totals.subtotal)}</dd></div>
+                  {cart.totals.discount > 0 ? <div><dt>Discount</dt><dd>−{formatINR(cart.totals.discount)}</dd></div> : null}
+                  <div><dt>Tax ({taxLabel(tax)})</dt><dd>{formatINR(cart.totals.tax)}</dd></div>
+                  <div className="grand"><dt>Total</dt><dd>{formatINR(cart.totals.total)}</dd></div>
+                </dl>
+              </footer>
+            ) : null}
+            <button
+              type="submit"
+              form="checkout-form"
+              className="pay-bar checkout-desktop-cta"
+              disabled={busy || !cart.totals}
+              aria-busy={busy}
+            >
+              <span>{busy ? 'Sending code…' : 'Place order'}</span>
+              {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
+            </button>
+          </aside>
+        ) : null}
+      </div>
       <footer className="checkout-dock">
         {otp ? (
           <button type="submit" form="otp-form" className="pay-bar" disabled={busy || code.length !== 6} aria-busy={busy}>
@@ -290,6 +382,9 @@ export function CheckoutPage() {
           </button>
         )}
       </footer>
+      <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
+        {scanning ? <TableScanner onTable={onTable} /> : null}
+      </Modal>
     </div>
   );
 }

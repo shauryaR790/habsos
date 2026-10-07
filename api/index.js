@@ -76,20 +76,28 @@ var env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 8787),
   sessionSecret: process.env.SESSION_SECRET || "dev-only-change-me",
-  otpProvider: process.env.OTP_PROVIDER || "mock",
+  otpProvider: process.env.OTP_PROVIDER || (process.env.FAST2SMS_API_KEY ? "fast2sms" : "mock"),
+  fast2smsApiKey: process.env.FAST2SMS_API_KEY || "",
   otpDevExpose: process.env.OTP_DEV_EXPOSE === "true",
   adminEmail: process.env.ADMIN_EMAIL || "admin@habs.cafe",
   adminPassword: process.env.ADMIN_PASSWORD || "habsos-admin",
   dbPath: process.env.DB_PATH || "./data/habsos.db",
   smsAccountSid: process.env.SMS_ACCOUNT_SID || "",
   smsAuthToken: process.env.SMS_AUTH_TOKEN || "",
-  smsFrom: process.env.SMS_FROM || ""
+  smsFrom: process.env.SMS_FROM || "",
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID || "",
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || ""
 };
 function isProduction() {
   return env.nodeEnv === "production";
 }
 function exposeDevOtp() {
-  return !isProduction() && env.nodeEnv === "development" && env.otpDevExpose;
+  if (isProduction()) return false;
+  if (env.otpProvider === "mock") return true;
+  return env.otpDevExpose;
+}
+function razorpayEnabled() {
+  return Boolean(env.razorpayKeyId && env.razorpayKeySecret);
 }
 
 // server/db.ts
@@ -299,6 +307,47 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
 CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_otp_order ON otp_challenges(order_id, created_at);
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  sku TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'Raw material',
+  unit TEXT NOT NULL,
+  qty REAL NOT NULL DEFAULT 0,
+  reorder_level REAL NOT NULL DEFAULT 0,
+  cost_per_unit INTEGER NOT NULL DEFAULT 0,
+  supplier TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  item_id TEXT NOT NULL REFERENCES inventory_items(id),
+  kind TEXT NOT NULL,
+  qty_delta REAL NOT NULL,
+  unit_cost INTEGER NOT NULL DEFAULT 0,
+  reference TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  supplier TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT 'staff'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_mov_ref ON inventory_movements(item_id, reference) WHERE reference != '';
+
+CREATE TABLE IF NOT EXISTS menu_recipes (
+  menu_item_id TEXT NOT NULL REFERENCES menu_items(id),
+  inventory_item_id TEXT NOT NULL REFERENCES inventory_items(id),
+  qty_per_portion REAL NOT NULL,
+  PRIMARY KEY (menu_item_id, inventory_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inv_items_cafe ON inventory_items(cafe_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_inv_mov_cafe ON inventory_movements(cafe_id, created_at);
 `);
   migrate(database);
   return database;
@@ -316,6 +365,10 @@ function migrate(database) {
   addColumn(database, "menu_items", "is_favorite", "INTEGER NOT NULL DEFAULT 0");
   addColumn(database, "menu_items", "shortcut_num", "TEXT");
   addColumn(database, "menu_items", "shortcut_alpha", "TEXT");
+  addColumn(database, "menu_items", "menu_lead", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "menu_items", "menu_subtitle", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "menu_items", "kcal_label", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "menu_items", "ingredients_json", "TEXT NOT NULL DEFAULT '[]'");
 }
 var current = null;
 function live() {
@@ -412,6 +465,7 @@ async function pushDatabase(src) {
 }
 
 // server/http.ts
+var import_node_crypto7 = require("node:crypto");
 var import_node_fs4 = require("node:fs");
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_express = __toESM(require("express"), 1);
@@ -488,12 +542,30 @@ function statusMessage(status) {
       return status;
   }
 }
+var DRINKS_CATEGORY_ID = "cat_drinks";
+var DRINK_ADDON_GROUP_IDS = ["group_size", "group_milk", "group_extras"];
+function defaultAddonGroupsForCategory(categoryId) {
+  return categoryId === DRINKS_CATEGORY_ID ? [...DRINK_ADDON_GROUP_IDS] : [];
+}
 function normalizeShortcut(value) {
   return value.trim().toUpperCase().replace(/[\s./_-]+/g, "");
 }
 var LINE_QTY_MIN = 1;
 var LINE_QTY_MAX = 20;
 var LINE_NOTE_MAX = 180;
+function clampLineQuantity(value) {
+  if (!Number.isFinite(value)) return LINE_QTY_MIN;
+  return Math.min(LINE_QTY_MAX, Math.max(LINE_QTY_MIN, Math.round(value)));
+}
+function cartLineKey(line) {
+  return `${line.menuItemId}|${[...line.addonIds].sort().join(",")}|${(line.notes ?? "").trim()}`;
+}
+function applyLineQuantity(current2, delta) {
+  const raw = current2 + delta;
+  if (raw < LINE_QTY_MIN) return { quantity: 0, capped: false };
+  if (raw > LINE_QTY_MAX) return { quantity: LINE_QTY_MAX, capped: true };
+  return { quantity: raw, capped: false };
+}
 var PriceError = class extends Error {
   constructor(message) {
     super(message);
@@ -576,6 +648,11 @@ function zonedOffsetMs(date, timeZone) {
   const read = (type) => Number(parts.find((part) => part.type === type)?.value ?? 0);
   const asUtc = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"), read("second"));
   return asUtc - date.getTime();
+}
+function paymentPreferenceFromNotes(notes) {
+  const raw = noteValue(notes, "PAY_PREF").toUpperCase();
+  if (raw === "UPI" || raw === "CARD") return raw;
+  return "DESK";
 }
 function noteValue(notes, key) {
   const prefix = `${key}:`;
@@ -765,8 +842,10 @@ function toPublicOrder(order) {
     orderNumber: order.orderNumber,
     tableName: order.tableName,
     customerName: order.customerName,
+    customerMobile: order.customerMobile || void 0,
     status: order.status,
     paymentStatus: order.paymentStatus,
+    paymentPreference: paymentPreferenceFromNotes(order.notes),
     subtotal: order.subtotal,
     tax: order.tax,
     discount: order.discount,
@@ -790,7 +869,38 @@ var checkoutStartSchema = import_zod.z.object({
   customerName: import_zod.z.string().trim().min(1).max(80),
   customerMobile: import_zod.z.string().trim().min(8).max(20),
   items: import_zod.z.array(cartLineSchema).min(1).max(30),
-  clientKey: import_zod.z.string().uuid().optional()
+  clientKey: import_zod.z.string().uuid().optional(),
+  paymentPreference: import_zod.z.enum(["DESK", "UPI", "CARD"]).optional().default("DESK"),
+  address: import_zod.z.string().trim().max(200).optional(),
+  locality: import_zod.z.string().trim().max(120).optional(),
+  extraInfo: import_zod.z.string().trim().max(200).optional()
+});
+var guestMenuFieldsSchema = {
+  menuLead: import_zod.z.string().trim().max(24).optional().default(""),
+  menuSubtitle: import_zod.z.string().trim().max(80).optional().default(""),
+  kcalLabel: import_zod.z.string().trim().max(40).optional().default(""),
+  ingredients: import_zod.z.array(import_zod.z.string().trim().min(1).max(24)).max(8).optional().default([])
+};
+var menuItemCreateSchema = import_zod.z.object({
+  categoryId: import_zod.z.string().trim().min(1).max(80),
+  name: import_zod.z.string().trim().min(1).max(80),
+  description: import_zod.z.string().trim().max(400).optional().default(""),
+  price: import_zod.z.number().int().min(0).max(1e5),
+  imageUrl: import_zod.z.string().trim().max(500).nullable().optional(),
+  isVeg: import_zod.z.boolean().optional().default(true),
+  isFavorite: import_zod.z.boolean().optional().default(false),
+  shortcutNum: import_zod.z.string().trim().max(8).nullable().optional(),
+  shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional(),
+  addonGroupIds: import_zod.z.array(import_zod.z.string().trim().min(1).max(80)).max(12).optional().default([]),
+  ...guestMenuFieldsSchema
+});
+var tableStageSchema = import_zod.z.object({
+  stage: import_zod.z.enum(["blank", "running", "kot", "printed", "paid"])
+});
+var mediaUploadSchema = import_zod.z.object({
+  filename: import_zod.z.string().trim().min(1).max(80),
+  contentBase64: import_zod.z.string().min(32).max(25e5),
+  mime: import_zod.z.enum(["image/png", "image/jpeg", "image/webp"])
 });
 var checkoutVerifySchema = import_zod.z.object({
   orderId: import_zod.z.string().uuid(),
@@ -825,6 +935,16 @@ var paymentSchema = import_zod.z.object({
   method: import_zod.z.enum(PAYMENT_METHODS),
   amount: import_zod.z.number().int().min(1).max(1e5).optional()
 });
+var razorpayCreateSchema = import_zod.z.object({
+  orderId: import_zod.z.string().uuid(),
+  amount: import_zod.z.number().int().min(100).max(1e7).optional()
+});
+var razorpayVerifySchema = import_zod.z.object({
+  orderId: import_zod.z.string().uuid(),
+  razorpayOrderId: import_zod.z.string().trim().min(4).max(40),
+  razorpayPaymentId: import_zod.z.string().trim().min(4).max(40),
+  razorpaySignature: import_zod.z.string().trim().min(8).max(128)
+});
 var splitSchema = import_zod.z.object({
   parts: import_zod.z.number().int().min(2).max(8)
 });
@@ -837,7 +957,8 @@ var menuItemPatchSchema = import_zod.z.object({
   isVeg: import_zod.z.boolean().optional(),
   isFavorite: import_zod.z.boolean().optional(),
   shortcutNum: import_zod.z.string().trim().max(8).nullable().optional(),
-  shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional()
+  shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional(),
+  ...guestMenuFieldsSchema
 });
 var addonPatchSchema = import_zod.z.object({
   name: import_zod.z.string().trim().min(1).max(80),
@@ -902,14 +1023,312 @@ var loginSchema = import_zod.z.object({
   email: import_zod.z.string().trim().email().max(120),
   password: import_zod.z.string().min(4).max(120)
 });
+var inventoryItemCreateSchema = import_zod.z.object({
+  name: import_zod.z.string().trim().min(1).max(80),
+  sku: import_zod.z.string().trim().max(32).optional().default(""),
+  category: import_zod.z.string().trim().max(40).optional().default("Raw material"),
+  unit: import_zod.z.enum(["kg", "g", "l", "ml", "pcs"]),
+  qty: import_zod.z.number().min(0).max(1e6).optional().default(0),
+  reorderLevel: import_zod.z.number().min(0).max(1e6).optional().default(0),
+  costPerUnit: import_zod.z.number().int().min(0).max(1e7).optional().default(0),
+  supplier: import_zod.z.string().trim().max(80).optional().default("")
+});
+var inventoryItemPatchSchema = import_zod.z.object({
+  name: import_zod.z.string().trim().min(1).max(80).optional(),
+  sku: import_zod.z.string().trim().max(32).optional(),
+  category: import_zod.z.string().trim().max(40).optional(),
+  unit: import_zod.z.enum(["kg", "g", "l", "ml", "pcs"]).optional(),
+  reorderLevel: import_zod.z.number().min(0).max(1e6).optional(),
+  costPerUnit: import_zod.z.number().int().min(0).max(1e7).optional(),
+  supplier: import_zod.z.string().trim().max(80).optional()
+});
+var inventoryMovementSchema = import_zod.z.object({
+  itemId: import_zod.z.string().trim().min(1).max(80),
+  kind: import_zod.z.enum(["PURCHASE", "WASTAGE", "ADJUSTMENT", "RETURN"]),
+  qty: import_zod.z.number().refine((n) => n !== 0 && Math.abs(n) <= 1e6, "Enter a non-zero quantity."),
+  unitCost: import_zod.z.number().int().min(0).max(1e7).optional(),
+  notes: import_zod.z.string().trim().max(200).optional().default(""),
+  supplier: import_zod.z.string().trim().max(80).optional().default("")
+});
+var menuRecipesSchema = import_zod.z.object({
+  lines: import_zod.z.array(import_zod.z.object({
+    inventoryItemId: import_zod.z.string().trim().min(1).max(80),
+    qtyPerPortion: import_zod.z.number().positive().max(1e4)
+  })).max(24)
+});
+
+// server/inventory.ts
+var import_node_crypto = require("node:crypto");
+
+// server/appError.ts
+var AppError = class extends Error {
+  constructor(status, code, message, details) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.details = details;
+    this.name = "AppError";
+  }
+  status;
+  code;
+  details;
+};
+
+// server/ids.ts
+var CAFE_ID = "cafe_habsos";
+
+// server/inventory.ts
+var INVENTORY_UNITS = ["kg", "g", "l", "ml", "pcs"];
+function mapItem(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    sku: row.sku,
+    category: row.category,
+    unit: row.unit,
+    qty: row.qty,
+    reorderLevel: row.reorder_level,
+    costPerUnit: row.cost_per_unit,
+    supplier: row.supplier,
+    isActive: row.is_active === 1,
+    updatedAt: row.updated_at,
+    lowStock: row.qty <= row.reorder_level && row.reorder_level > 0
+  };
+}
+function mapMovement(row, itemName) {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    itemName: itemName ?? "",
+    kind: row.kind,
+    qtyDelta: row.qty_delta,
+    unitCost: row.unit_cost,
+    reference: row.reference,
+    notes: row.notes,
+    supplier: row.supplier,
+    createdAt: row.created_at,
+    actor: row.actor
+  };
+}
+function listInventoryItems() {
+  const rows = all(
+    "SELECT * FROM inventory_items WHERE cafe_id = ? AND is_active = 1 ORDER BY category, name",
+    [CAFE_ID]
+  );
+  return rows.map(mapItem);
+}
+function listInventoryMovements(limit = 80) {
+  const rows = all(
+    `SELECT m.*, i.name AS item_name FROM inventory_movements m
+     JOIN inventory_items i ON i.id = m.item_id
+     WHERE m.cafe_id = ?
+     ORDER BY m.created_at DESC LIMIT ?`,
+    [CAFE_ID, limit]
+  );
+  return rows.map((row) => mapMovement(row, row.item_name));
+}
+function inventorySummary() {
+  const items = listInventoryItems();
+  const low = items.filter((item) => item.lowStock);
+  const value = items.reduce((sum, item) => sum + Math.round(item.qty * item.costPerUnit), 0);
+  return {
+    itemCount: items.length,
+    lowStockCount: low.length,
+    stockValue: value,
+    lowStock: low.slice(0, 8)
+  };
+}
+function createInventoryItem(input) {
+  const name = input.name.trim();
+  if (!name) throw new AppError(400, "INVENTORY", "Name is required.");
+  const unit = input.unit.trim();
+  if (!INVENTORY_UNITS.includes(unit)) {
+    throw new AppError(400, "INVENTORY", "Pick a valid unit.");
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const id = `inv_${(0, import_node_crypto.randomUUID)().slice(0, 8)}`;
+  const qty = Math.max(0, input.qty ?? 0);
+  run(
+    `INSERT INTO inventory_items (id, cafe_id, name, sku, category, unit, qty, reorder_level, cost_per_unit, supplier, is_active, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+    [
+      id,
+      CAFE_ID,
+      name,
+      (input.sku ?? "").trim().slice(0, 32),
+      (input.category ?? "Raw material").trim().slice(0, 40),
+      unit,
+      qty,
+      Math.max(0, input.reorderLevel ?? 0),
+      Math.max(0, input.costPerUnit ?? 0),
+      (input.supplier ?? "").trim().slice(0, 80),
+      now
+    ]
+  );
+  return mapItem(get("SELECT * FROM inventory_items WHERE id = ?", [id]));
+}
+function updateInventoryItem(id, patch) {
+  const current2 = get("SELECT * FROM inventory_items WHERE id = ? AND cafe_id = ?", [id, CAFE_ID]);
+  if (!current2) throw new AppError(404, "NOT_FOUND", "Stock item not found.");
+  const unit = patch.unit !== void 0 ? patch.unit.trim() : current2.unit;
+  if (patch.unit !== void 0 && !INVENTORY_UNITS.includes(unit)) {
+    throw new AppError(400, "INVENTORY", "Pick a valid unit.");
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  run(
+    `UPDATE inventory_items SET
+      name = ?, sku = ?, category = ?, unit = ?, reorder_level = ?, cost_per_unit = ?, supplier = ?, updated_at = ?
+     WHERE id = ?`,
+    [
+      patch.name !== void 0 ? patch.name.trim().slice(0, 80) : current2.name,
+      patch.sku !== void 0 ? patch.sku.trim().slice(0, 32) : current2.sku,
+      patch.category !== void 0 ? patch.category.trim().slice(0, 40) : current2.category,
+      unit,
+      patch.reorderLevel !== void 0 ? Math.max(0, patch.reorderLevel) : current2.reorder_level,
+      patch.costPerUnit !== void 0 ? Math.max(0, patch.costPerUnit) : current2.cost_per_unit,
+      patch.supplier !== void 0 ? patch.supplier.trim().slice(0, 80) : current2.supplier,
+      now,
+      id
+    ]
+  );
+  return mapItem(get("SELECT * FROM inventory_items WHERE id = ?", [id]));
+}
+function recordMovementInternal(input) {
+  const item = get("SELECT * FROM inventory_items WHERE id = ? AND cafe_id = ? AND is_active = 1", [input.itemId, CAFE_ID]);
+  if (!item) throw new AppError(404, "NOT_FOUND", "Stock item not found.");
+  const ref = (input.reference ?? "").trim();
+  if (ref) {
+    const dup = get("SELECT id FROM inventory_movements WHERE item_id = ? AND reference = ?", [input.itemId, ref]);
+    if (dup) return mapMovement(get("SELECT * FROM inventory_movements WHERE id = ?", [dup.id]), item.name);
+  }
+  const qtyDelta = input.qtyDelta;
+  if (!Number.isFinite(qtyDelta) || qtyDelta === 0) throw new AppError(400, "INVENTORY", "Quantity must be non-zero.");
+  const nextQty = item.qty + qtyDelta;
+  if (nextQty < -1e-4) throw new AppError(409, "INVENTORY", `Not enough ${item.name} on hand (${item.qty} ${item.unit}).`);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const id = (0, import_node_crypto.randomUUID)();
+  run(
+    `INSERT INTO inventory_movements (id, cafe_id, item_id, kind, qty_delta, unit_cost, reference, notes, supplier, created_at, actor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      CAFE_ID,
+      input.itemId,
+      input.kind,
+      qtyDelta,
+      input.unitCost ?? item.cost_per_unit,
+      ref,
+      (input.notes ?? "").trim().slice(0, 200),
+      (input.supplier ?? "").trim().slice(0, 80),
+      now,
+      input.actor ?? "staff"
+    ]
+  );
+  run("UPDATE inventory_items SET qty = ?, updated_at = ? WHERE id = ?", [Math.max(0, nextQty), now, input.itemId]);
+  return mapMovement(get("SELECT * FROM inventory_movements WHERE id = ?", [id]), item.name);
+}
+function recordInventoryMovement(input) {
+  const qty = Math.abs(input.qty);
+  if (!Number.isFinite(qty) || qty <= 0) throw new AppError(400, "INVENTORY", "Enter a quantity.");
+  let qtyDelta = qty;
+  if (input.kind === "WASTAGE" || input.kind === "SALE") qtyDelta = -qty;
+  if (input.kind === "PURCHASE" || input.kind === "RETURN") qtyDelta = qty;
+  if (input.kind === "ADJUSTMENT") qtyDelta = input.qty;
+  return recordMovementInternal({
+    itemId: input.itemId,
+    kind: input.kind,
+    qtyDelta,
+    unitCost: input.unitCost,
+    reference: "",
+    notes: input.notes,
+    supplier: input.supplier,
+    actor: input.actor
+  });
+}
+function listRecipesForMenuItem(menuItemId) {
+  const rows = all(
+    `SELECT r.menu_item_id, r.inventory_item_id, r.qty_per_portion, i.name AS item_name, i.unit
+     FROM menu_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
+     WHERE r.menu_item_id = ?`,
+    [menuItemId]
+  );
+  return rows.map((row) => ({
+    menuItemId: row.menu_item_id,
+    inventoryItemId: row.inventory_item_id,
+    inventoryItemName: row.item_name,
+    unit: row.unit,
+    qtyPerPortion: row.qty_per_portion
+  }));
+}
+function listAllRecipes() {
+  const rows = all(
+    "SELECT menu_item_id, inventory_item_id, qty_per_portion FROM menu_recipes"
+  );
+  return rows.map((row) => ({
+    menuItemId: row.menu_item_id,
+    inventoryItemId: row.inventory_item_id,
+    qtyPerPortion: row.qty_per_portion
+  }));
+}
+function saveMenuRecipes(menuItemId, lines) {
+  const menu = get("SELECT id FROM menu_items WHERE id = ? AND cafe_id = ?", [menuItemId, CAFE_ID]);
+  if (!menu) throw new AppError(404, "NOT_FOUND", "Menu item not found.");
+  run("DELETE FROM menu_recipes WHERE menu_item_id = ?", [menuItemId]);
+  for (const line of lines) {
+    if (!line.inventoryItemId || !Number.isFinite(line.qtyPerPortion) || line.qtyPerPortion <= 0) continue;
+    const stock = get("SELECT id FROM inventory_items WHERE id = ? AND cafe_id = ?", [line.inventoryItemId, CAFE_ID]);
+    if (!stock) throw new AppError(400, "INVENTORY", "Unknown stock item in recipe.");
+    run(
+      "INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)",
+      [menuItemId, line.inventoryItemId, line.qtyPerPortion]
+    );
+  }
+  return listRecipesForMenuItem(menuItemId);
+}
+function consumeInventoryForOrder(orderId, actor = "system") {
+  const order = get("SELECT order_number FROM orders WHERE id = ?", [orderId]);
+  if (!order) return;
+  const lines = all(
+    "SELECT menu_item_id, name_snapshot, quantity FROM order_items WHERE order_id = ?",
+    [orderId]
+  );
+  for (const line of lines) {
+    if (!line.menu_item_id) continue;
+    const recipes = all(
+      "SELECT inventory_item_id, qty_per_portion FROM menu_recipes WHERE menu_item_id = ?",
+      [line.menu_item_id]
+    );
+    for (const recipe of recipes) {
+      const qty = recipe.qty_per_portion * line.quantity;
+      if (qty <= 0) continue;
+      const ref = `sale:${orderId}:${line.menu_item_id}:${recipe.inventory_item_id}`;
+      recordMovementInternal({
+        itemId: recipe.inventory_item_id,
+        kind: "SALE",
+        qtyDelta: -qty,
+        reference: ref,
+        notes: `Bill #${order.order_number} \xB7 ${line.name_snapshot}`,
+        actor
+      });
+    }
+  }
+}
+function inventoryBundle() {
+  return {
+    items: listInventoryItems(),
+    movements: listInventoryMovements(),
+    recipes: listAllRecipes(),
+    summary: inventorySummary()
+  };
+}
 
 // server/auth.ts
-var import_node_crypto = require("node:crypto");
+var import_node_crypto2 = require("node:crypto");
 var import_node_util = require("node:util");
-var scryptAsync = (0, import_node_util.promisify)(import_node_crypto.scrypt);
+var scryptAsync = (0, import_node_util.promisify)(import_node_crypto2.scrypt);
 var SESSION_MS = 16 * 60 * 60 * 1e3;
 async function hashPassword(password) {
-  const salt = (0, import_node_crypto.randomBytes)(16).toString("hex");
+  const salt = (0, import_node_crypto2.randomBytes)(16).toString("hex");
   const derived = await scryptAsync(password, salt, 32);
   return `scrypt$${salt}$${derived.toString("hex")}`;
 }
@@ -919,10 +1338,10 @@ async function verifyPassword(password, stored) {
   const derived = await scryptAsync(password, salt, 32);
   const actual = Buffer.from(hex, "hex");
   if (actual.length !== derived.length) return false;
-  return (0, import_node_crypto.timingSafeEqual)(actual, derived);
+  return (0, import_node_crypto2.timingSafeEqual)(actual, derived);
 }
 function createSession(userId) {
-  const id = (0, import_node_crypto.randomUUID)();
+  const id = (0, import_node_crypto2.randomUUID)();
   const now = /* @__PURE__ */ new Date();
   const expires = new Date(now.getTime() + SESSION_MS).toISOString();
   run("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [id, userId, expires, now.toISOString()]);
@@ -964,13 +1383,101 @@ function clearSessionCookie() {
 }
 
 // server/logic.ts
-var import_node_crypto4 = require("node:crypto");
+var import_node_crypto6 = require("node:crypto");
 
-// server/ids.ts
-var CAFE_ID = "cafe_habsos";
+// shared/menuDisplay.ts
+var INGREDIENT_IDS = [
+  "milk",
+  "soy",
+  "wheat",
+  "coffee",
+  "cocoa",
+  "egg",
+  "tea",
+  "potato",
+  "cheese",
+  "tomato",
+  "butter",
+  "mint",
+  "chilli",
+  "paneer"
+];
+var LEGACY_MENU_DISPLAY = {
+  item_moroccan: { lead: "BLENDED", titled: "Moroccan Avocado Smoothie", kcal: "210 kcal", ingredients: ["milk"] },
+  item_berry: { lead: "BLENDED", titled: "Berry Blast Shake", kcal: "185 kcal", ingredients: ["milk"] },
+  item_nutella: { lead: "HOT", titled: "Nutella Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
+  item_hazelnut: { lead: "HOT", titled: "Hazelnut Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
+  item_peach: { lead: "ICED", titled: "Peach Ice Tea", kcal: "120 kcal", ingredients: ["tea"] },
+  item_affogato: { lead: "CUP", titled: "Affogato", kcal: "223 kcal", ingredients: ["coffee", "milk"] },
+  item_mint_latte: { lead: "HOT", titled: "Mint Latte", kcal: "231 kcal", ingredients: ["coffee", "milk", "mint"] },
+  item_americano: { lead: "HOT", titled: "Cafe Americano", kcal: "25 kcal", ingredients: ["coffee"] },
+  item_filter: { lead: "HOT", titled: "Filter Coffee", kcal: "28 kcal", ingredients: ["coffee"] },
+  item_cardamom: { lead: "CUP", titled: "Cardamom Tea", kcal: "92 kcal", ingredients: ["tea", "milk"] },
+  item_ginger_tea: { lead: "CUP", titled: "Ginger Tea", kcal: "92 kcal", ingredients: ["tea"] },
+  item_espresso: { lead: "SHORT", titled: "Classic Espresso", kcal: "5 kcal", ingredients: ["coffee"] },
+  item_long_black: { lead: "LONG", titled: "Long Black", kcal: "10 kcal", ingredients: ["coffee"] },
+  item_cappuccino: { lead: "CUP", titled: "Cappuccino", kcal: "120 kcal", ingredients: ["milk", "coffee"] },
+  item_cap_alt: { lead: "CUP", titled: "Cappuccino with Almond or Oat", kcal: "90\u2013140 kcal", ingredients: ["milk", "coffee"] },
+  item_latte: { lead: "CUP", titled: "Cafe Latte", kcal: "150 kcal", ingredients: ["milk", "coffee"] },
+  item_flat_white: { lead: "CUP", titled: "Flat White", kcal: "140 kcal", ingredients: ["milk", "coffee"] },
+  item_cortado: { lead: "SHORT", titled: "Spanish Cortado", kcal: "80 kcal", ingredients: ["coffee", "milk"] },
+  item_mocha: { lead: "CUP", titled: "Chocolate Mocha", kcal: "220 kcal", ingredients: ["milk", "cocoa", "coffee"] },
+  item_cold_brew: { lead: "ICED", titled: "Cold Brew", kcal: "5 kcal", ingredients: ["coffee"] },
+  item_citrus_brew: { lead: "ICED", titled: "Citrus Cold Brew", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
+  item_saigon: { lead: "ICED", titled: "Saigon Cold Brew", kcal: "60 kcal", ingredients: ["coffee", "milk"] },
+  item_red_john: { lead: "ICED", titled: "Red John", kcal: "90 kcal", ingredients: ["coffee"] },
+  item_sparkling: { lead: "ICED", titled: "Sparkling Espresso", kcal: "180 kcal", ingredients: ["coffee"] },
+  item_tonic: { lead: "ICED", titled: "Cold Brew Tonic / Ginger Ale", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
+  item_iced_americano: { lead: "ICED", titled: "Iced Americano", kcal: "10 kcal", ingredients: ["coffee"] },
+  item_halloumi: { lead: "SWEET", titled: "Strawberry Waffle", kcal: "310 kcal", ingredients: ["wheat", "butter"] },
+  item_avocado_toast: { lead: "SWEET", titled: "Butter Pancakes", kcal: "350 kcal", ingredients: ["wheat", "butter", "egg"] },
+  item_bruschetta: { lead: "BOARD", titled: "Bruschetta Board", kcal: "130 kcal", ingredients: ["wheat", "tomato"] },
+  item_karak_toast: { lead: "TOAST", titled: "Karak Chai Toast", kcal: "350 kcal", ingredients: ["wheat", "tea", "milk"] },
+  item_kebab: { lead: "SKEWER", titled: "Gillafi Dahike Kebab", kcal: "220 kcal", ingredients: ["milk"] },
+  item_mezze: { lead: "PLATE", titled: "Mezze Platter", kcal: "310 kcal", ingredients: ["wheat", "tomato"] },
+  item_quesadilla: { lead: "FOLDED", titled: "Mexican Quesadilla", kcal: "320 kcal", ingredients: ["wheat", "cheese"] },
+  item_cheese_balls: { lead: "FRIED", titled: "Jalape\xF1o Cheese Balls", kcal: "190 kcal", ingredients: ["cheese", "wheat"] },
+  item_healthy_bowl: { lead: "BOWL", titled: "Healthy Bowl", kcal: "320 kcal", ingredients: ["tomato"] },
+  item_house_salad: { lead: "BOWL", titled: "House Salad", kcal: "170 kcal", ingredients: ["tomato"] },
+  item_harvest: { lead: "SLIDER", titled: "Green Harvest Burger", kcal: "180 kcal", ingredients: ["wheat", "tomato"] },
+  item_veg_club: { lead: "STACKED", titled: "Veg Club Sandwich", kcal: "200 kcal", ingredients: ["wheat", "cheese", "tomato"] },
+  item_cheddar: { lead: "BAKED", titled: "Chocolate Chunk Cookies", kcal: "220 kcal", ingredients: ["wheat", "butter"] },
+  item_bombay: { lead: "STACKED", titled: "Bombay Club Sandwich", kcal: "190 kcal", ingredients: ["wheat", "cheese", "tomato"] },
+  item_penne: { lead: "PASTA", titled: "Penne Creme Pesto", kcal: "340 kcal", ingredients: ["wheat", "cheese"] },
+  item_spaghetti: { lead: "PASTA", titled: "Spaghetti Aglio e Olio", kcal: "280 kcal", ingredients: ["wheat", "chilli"] },
+  item_risotto: { lead: "RICE", titled: "Saffron Risotto", kcal: "330 kcal", ingredients: ["cheese"] },
+  item_paneer: { lead: "GRILL", titled: "Marinated Grill Cottage Cheese", kcal: "380 kcal", ingredients: ["paneer"] }
+};
+function parseIngredientList(raw) {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const allowed = new Set(INGREDIENT_IDS);
+    return parsed.filter((id) => typeof id === "string" && allowed.has(id)).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+function serializeIngredients(ids) {
+  const allowed = new Set(INGREDIENT_IDS);
+  const clean = ids.filter((id) => allowed.has(id)).slice(0, 8);
+  return JSON.stringify(clean);
+}
+function defaultGuestMetaForCategory(categoryId, name) {
+  if (categoryId === DRINKS_CATEGORY_ID) {
+    return {
+      menuLead: "ICED",
+      menuSubtitle: name,
+      kcalLabel: "",
+      ingredients: ["coffee"]
+    };
+  }
+  return { menuLead: "", menuSubtitle: name, kcalLabel: "", ingredients: [] };
+}
 
 // server/otp.ts
-var import_node_crypto2 = require("node:crypto");
+var import_node_crypto3 = require("node:crypto");
 var devCodes = /* @__PURE__ */ new Map();
 function rememberDevCode(challengeId, code) {
   if (!isProduction()) devCodes.set(challengeId, code);
@@ -979,10 +1486,10 @@ function peekDevCode(challengeId) {
   return devCodes.get(challengeId);
 }
 function hashCode(challengeId, code) {
-  return (0, import_node_crypto2.createHash)("sha256").update(`${env.sessionSecret}:${challengeId}:${code}`).digest("hex");
+  return (0, import_node_crypto3.createHash)("sha256").update(`${env.sessionSecret}:${challengeId}:${code}`).digest("hex");
 }
 function makeOtpCode() {
-  return String((0, import_node_crypto2.randomInt)(0, 1e6)).padStart(6, "0");
+  return String((0, import_node_crypto3.randomInt)(0, 1e6)).padStart(6, "0");
 }
 function hashOtp(challengeId, code) {
   return hashCode(challengeId, code);
@@ -991,7 +1498,7 @@ function hashesMatch(expected, actual) {
   const left = Buffer.from(expected);
   const right = Buffer.from(actual);
   if (left.length !== right.length) return false;
-  return (0, import_node_crypto2.timingSafeEqual)(left, right);
+  return (0, import_node_crypto3.timingSafeEqual)(left, right);
 }
 var MockOtpProvider = class {
   name = "mock";
@@ -1036,7 +1543,44 @@ var SmsOtpProvider = class {
     return hashesMatch(input.codeHash, actual) ? "VERIFIED" : "FAILED";
   }
 };
+var Fast2SmsOtpProvider = class {
+  name = "fast2sms";
+  async sendOtp(input) {
+    if (!env.fast2smsApiKey) throw new Error("FAST2SMS_API_KEY is not configured");
+    const body = new URLSearchParams({
+      route: "q",
+      message: `Your After Dunes verification code is ${input.code}`,
+      language: "english",
+      flash: "0",
+      numbers: input.mobile
+    });
+    const response = await fetch("https://www.fast2sms.com/dev/bulkV2", {
+      method: "POST",
+      headers: {
+        authorization: env.fast2smsApiKey,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body
+    });
+    const json = await response.json();
+    const detail = Array.isArray(json.message) ? json.message.join(" ") : json.message;
+    if (!response.ok || json.return === false) {
+      throw new Error(detail?.trim() || "SMS provider rejected the message");
+    }
+    return { providerRef: json.request_id ?? "fast2sms" };
+  }
+  async verifyOtp(input) {
+    const actual = hashCode(input.challengeId, input.code);
+    return hashesMatch(input.codeHash, actual) ? "VERIFIED" : "FAILED";
+  }
+};
 function createOtpProvider() {
+  if (!isProduction() && env.otpDevExpose) {
+    return new MockOtpProvider();
+  }
+  if (env.otpProvider === "fast2sms" || env.fast2smsApiKey && env.otpProvider !== "sms" && env.otpProvider !== "mock") {
+    return new Fast2SmsOtpProvider();
+  }
   if (env.otpProvider === "sms") return new SmsOtpProvider();
   if (env.otpProvider !== "mock" && isProduction()) {
     throw new Error(`Unknown OTP provider: ${env.otpProvider}`);
@@ -1046,7 +1590,7 @@ function createOtpProvider() {
 var otpProvider = createOtpProvider();
 
 // server/realtime.ts
-var import_node_crypto3 = require("node:crypto");
+var import_node_crypto4 = require("node:crypto");
 var clients = /* @__PURE__ */ new Set();
 function addClient(client) {
   clients.add(client);
@@ -1084,7 +1628,7 @@ function openStream(res, kind, orderId) {
     "X-Accel-Buffering": "no"
   });
   res.write("\n");
-  const id = (0, import_node_crypto3.randomUUID)();
+  const id = (0, import_node_crypto4.randomUUID)();
   const remove = addClient({ id, res, kind, orderId });
   res.on("close", () => remove());
   return id;
@@ -1111,19 +1655,53 @@ var timer = setInterval(() => {
 }, 2e4);
 timer.unref?.();
 
-// server/logic.ts
-var AppError = class extends Error {
-  constructor(status, code, message, details) {
+// server/razorpay.ts
+var import_node_crypto5 = require("node:crypto");
+var RazorpayError = class extends Error {
+  constructor(message) {
     super(message);
-    this.status = status;
-    this.code = code;
-    this.details = details;
-    this.name = "AppError";
+    this.name = "RazorpayError";
   }
-  status;
-  code;
-  details;
 };
+function publicRazorpayKey() {
+  return razorpayEnabled() ? env.razorpayKeyId : "";
+}
+function authHeader() {
+  return `Basic ${Buffer.from(`${env.razorpayKeyId}:${env.razorpayKeySecret}`).toString("base64")}`;
+}
+async function createRazorpayOrder(amountPaise, receipt) {
+  if (!razorpayEnabled()) throw new RazorpayError("Online payments are not configured.");
+  if (!Number.isInteger(amountPaise) || amountPaise < 100) {
+    throw new RazorpayError("Amount must be at least \u20B91.");
+  }
+  const response = await fetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      amount: amountPaise,
+      currency: "INR",
+      receipt: receipt.slice(0, 40)
+    })
+  });
+  if (!response.ok) {
+    throw new RazorpayError("Could not start the online payment.");
+  }
+  return await response.json();
+}
+function verifyRazorpayPayment(razorpayOrderId, razorpayPaymentId, signature) {
+  if (!razorpayEnabled()) throw new RazorpayError("Online payments are not configured.");
+  const expected = (0, import_node_crypto5.createHmac)("sha256", env.razorpayKeySecret).update(`${razorpayOrderId}|${razorpayPaymentId}`).digest("hex");
+  const left = Buffer.from(expected);
+  const right = Buffer.from(signature);
+  if (left.length !== right.length || !(0, import_node_crypto5.timingSafeEqual)(left, right)) {
+    throw new RazorpayError("Payment verification failed.");
+  }
+}
+
+// server/logic.ts
 var OTP_TTL_MS = 5 * 60 * 1e3;
 var OTP_COOLDOWN_MS = 30 * 1e3;
 var OTP_MAX_ATTEMPTS = 5;
@@ -1139,9 +1717,20 @@ function cleanImage(url) {
   if (!url || !url.trim()) return null;
   const value = url.trim();
   if (value.length > 500 || !/^https?:\/\//i.test(value) && !value.startsWith("/")) {
-    throw new AppError(400, "IMAGE", "Image must be an http(s) URL.");
+    throw new AppError(400, "IMAGE", "Image must be a URL or /uploads/ path.");
   }
   return value;
+}
+function guestCheckoutNotes(input) {
+  const parts = [];
+  const pref = (input.paymentPreference ?? "DESK").toUpperCase();
+  if (pref === "UPI" || pref === "CARD") parts.push(`PAY_PREF:${pref}`);
+  else parts.push("PAY_PREF:DESK");
+  if (input.address?.trim()) parts.push(`ADDR:${input.address.trim()}`);
+  if (input.locality?.trim()) parts.push(`LOCALITY:${input.locality.trim()}`);
+  if (input.extraInfo?.trim()) parts.push(`EXTRA:${input.extraInfo.trim()}`);
+  parts.push("MODE:DINE");
+  return parts.join("\n");
 }
 function quoteOrThrow(lines, discount = 0) {
   const catalog = loadCatalog();
@@ -1198,7 +1787,10 @@ function loadCatalog() {
     )
   }));
   const links = all("SELECT menu_item_id, addon_group_id FROM menu_item_addon_groups");
-  const items = all("SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name", [CAFE_ID]).map(
+  const items = all(
+    "SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name",
+    [CAFE_ID]
+  ).map(
     (row) => ({
       id: row.id,
       categoryId: row.category_id,
@@ -1212,6 +1804,10 @@ function loadCatalog() {
       shortcutNum: row.shortcut_num,
       shortcutAlpha: row.shortcut_alpha,
       sortOrder: row.sort_order,
+      menuLead: row.menu_lead ?? "",
+      menuSubtitle: row.menu_subtitle ?? "",
+      kcalLabel: row.kcal_label ?? "",
+      ingredients: parseIngredientList(row.ingredients_json),
       addonGroupIds: links.filter((link) => link.menu_item_id === row.id).map((link) => link.addon_group_id)
     })
   );
@@ -1322,7 +1918,7 @@ function insertPricedOrder(input) {
   if (input.eventMessage) {
     run(
       `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
-      [(0, import_node_crypto4.randomUUID)(), input.id, "status", input.eventMessage, input.status, now, input.actor]
+      [(0, import_node_crypto6.randomUUID)(), input.id, "status", input.eventMessage, input.status, now, input.actor]
     );
   }
   if (OPEN_STATUSES.includes(input.status)) refreshTable(input.tableId);
@@ -1330,7 +1926,7 @@ function insertPricedOrder(input) {
 }
 function writeQuoteLines(orderId, quote) {
   for (const line of quote.lines) {
-    const itemId = (0, import_node_crypto4.randomUUID)();
+    const itemId = (0, import_node_crypto6.randomUUID)();
     run(
       `INSERT INTO order_items (id, order_id, menu_item_id, name_snapshot, quantity, unit_price, total, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1339,10 +1935,115 @@ function writeQuoteLines(orderId, quote) {
     for (const addon of line.addons) {
       run(
         `INSERT INTO order_item_addons (id, order_item_id, addon_id, name_snapshot, price_snapshot) VALUES (?, ?, ?, ?, ?)`,
-        [(0, import_node_crypto4.randomUUID)(), itemId, addon.addonId, addon.name, addon.price]
+        [(0, import_node_crypto6.randomUUID)(), itemId, addon.addonId, addon.name, addon.price]
       );
     }
   }
+}
+function isSplitTicket(notes) {
+  return notes.split(/\n/).some((line) => /^(SPLIT(:.*)?|PARENT:)/.test(line.trim()));
+}
+function mergedIntoId(order) {
+  const line = order.notes.split(/\n/).map((entry) => entry.trim()).find((entry) => entry.startsWith("MERGED:"));
+  return line ? line.slice(7).trim() || null : null;
+}
+function cartLinesFromOrder(order) {
+  return order.items.map((item) => {
+    if (!item.menuItemId) throw new AppError(400, "CART", "An item in the cart is no longer on the menu.");
+    return {
+      menuItemId: item.menuItemId,
+      quantity: item.quantity,
+      addonIds: item.addons.map((addon) => addon.addonId).filter((id) => Boolean(id)),
+      notes: item.notes
+    };
+  });
+}
+function mergeCartLines(current2, incoming) {
+  const next = current2.map((line) => ({
+    menuItemId: line.menuItemId,
+    quantity: line.quantity,
+    addonIds: [...line.addonIds],
+    notes: line.notes
+  }));
+  for (const line of incoming) {
+    const key = cartLineKey(line);
+    const match = next.find((candidate) => cartLineKey(candidate) === key);
+    if (match) {
+      const applied = applyLineQuantity(match.quantity, line.quantity);
+      match.quantity = applied.capped ? LINE_QTY_MAX : Math.max(match.quantity, applied.quantity);
+    } else {
+      next.push({
+        menuItemId: line.menuItemId,
+        quantity: clampLineQuantity(line.quantity),
+        addonIds: [...line.addonIds],
+        notes: line.notes
+      });
+    }
+  }
+  return next;
+}
+function unpaidOpenOrdersOnTable(tableId, exceptId) {
+  const rows = all(
+    `${ORDER_SELECT} WHERE o.table_id = ? AND o.status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') AND o.payment_status != 'PAID'${exceptId ? " AND o.id != ?" : ""} ORDER BY o.created_at ASC, o.order_number ASC`,
+    exceptId ? [tableId, exceptId] : [tableId]
+  );
+  return rows.length ? hydrate(rows) : [];
+}
+function unpaidOpenOnTable(tableId, exceptId) {
+  const opens = unpaidOpenOrdersOnTable(tableId, exceptId);
+  if (!opens.length) return null;
+  return opens.find((order) => !isSplitTicket(order.notes)) ?? opens[0];
+}
+function markMergedInto(orderId, targetId) {
+  const current2 = getOrder(orderId);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const notes = [`MERGED:${targetId}`, current2?.notes ?? ""].filter(Boolean).join("\n").slice(0, 400);
+  run(`UPDATE orders SET status = 'CANCELLED', notes = ?, updated_at = ?, synced_at = ? WHERE id = ?`, [notes, now, now, orderId]);
+}
+function appendItemsToOpenOrder(orderId, incoming, actor) {
+  const current2 = getOrder(orderId);
+  if (!current2) throw new AppError(404, "NOT_FOUND", "Order not found.");
+  if (current2.paymentStatus === "PAID" || current2.status === "COMPLETED" || current2.status === "CANCELLED" || current2.status === "OTP_PENDING") {
+    throw new AppError(409, "STATE", "This order can no longer be edited.");
+  }
+  const merged = mergeCartLines(cartLinesFromOrder(current2), incoming);
+  const quote = quoteOrThrow(merged, current2.discount);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const reopen = current2.status === "SERVED" || current2.status === "READY" ? "CONFIRMED" : current2.status;
+  run(`DELETE FROM order_item_addons WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)`, [orderId]);
+  run("DELETE FROM order_items WHERE order_id = ?", [orderId]);
+  writeQuoteLines(orderId, quote);
+  run(
+    `UPDATE orders SET subtotal = ?, tax = ?, discount = ?, total = ?, status = ?, updated_at = ?, synced_at = ? WHERE id = ?`,
+    [quote.subtotal, quote.tax, quote.discount, quote.total, reopen, now, now, orderId]
+  );
+  run(
+    `INSERT INTO order_events (id, order_id, type, message, created_at, actor) VALUES (?, ?, 'items', 'Items added', ?, ?)`,
+    [(0, import_node_crypto6.randomUUID)(), orderId, now, actor]
+  );
+  if (reopen !== current2.status) {
+    run(
+      `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, ?, ?, ?)`,
+      [(0, import_node_crypto6.randomUUID)(), orderId, statusMessage(reopen), current2.status, reopen, now, actor]
+    );
+  }
+  refreshTable(current2.tableId);
+  return getOrder(orderId);
+}
+function foldUnpaidTicketsOnTable(tableId, exceptId) {
+  const target = unpaidOpenOnTable(tableId, exceptId);
+  if (!target) return null;
+  const siblings = unpaidOpenOrdersOnTable(tableId, exceptId).filter((order) => {
+    if (order.id === target.id) return false;
+    if (isSplitTicket(order.notes)) return false;
+    if (paidTotal(order) > 0) return false;
+    return order.source === "QR";
+  });
+  for (const sibling of siblings) {
+    appendItemsToOpenOrder(target.id, cartLinesFromOrder(sibling), "system");
+    markMergedInto(sibling.id, target.id);
+  }
+  return getOrder(target.id);
 }
 function replaceStaffOrderItems(orderId, input) {
   const order = tx(() => {
@@ -1365,7 +2066,7 @@ function replaceStaffOrderItems(orderId, input) {
     );
     run(
       `INSERT INTO order_events (id, order_id, type, message, created_at, actor) VALUES (?, ?, 'items', 'Items updated', ?, 'staff')`,
-      [(0, import_node_crypto4.randomUUID)(), orderId, now]
+      [(0, import_node_crypto6.randomUUID)(), orderId, now]
     );
     if (mobile) {
       const customerId = upsertCustomer(name, mobile, now);
@@ -1415,7 +2116,7 @@ function findTable(tableId, tableCode) {
 function upsertCustomer(name, mobile, when) {
   const existing = get("SELECT id FROM customers WHERE cafe_id = ? AND mobile = ?", [CAFE_ID, mobile]);
   if (!existing) {
-    const id = (0, import_node_crypto4.randomUUID)();
+    const id = (0, import_node_crypto6.randomUUID)();
     run("INSERT INTO customers (id, cafe_id, name, mobile, order_count, last_order_at, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)", [id, CAFE_ID, name, mobile, when, when]);
     return id;
   }
@@ -1458,7 +2159,7 @@ function assertStillAvailable(order) {
   }
 }
 function notify(order) {
-  if (!order || order.status === "OTP_PENDING" || order.status === "DRAFT") return;
+  if (!order || order.status === "DRAFT") return;
   publish({ type: "order.upsert", order });
   if (order.tableId) publish({ type: "table.updated", tableId: order.tableId });
 }
@@ -1477,7 +2178,7 @@ async function issueOtp(orderId, mobile) {
       throw new AppError(429, "OTP_COOLDOWN", `Wait ${retryAfter}s before resending.`, { retryAfter });
     }
   }
-  const id = (0, import_node_crypto4.randomUUID)();
+  const id = (0, import_node_crypto6.randomUUID)();
   const code = makeOtpCode();
   const sent = await otpProvider.sendOtp({ mobile, code });
   rememberDevCode(id, code);
@@ -1519,13 +2220,27 @@ function placeGuestOrder(input) {
   if (!table) throw new AppError(404, "TABLE", "This table is not recognized. Scan the QR code on your table.");
   if (input.clientKey) {
     const existing = getOrderByClientKey(input.clientKey);
-    if (existing && !["CANCELLED", "OTP_PENDING", "DRAFT"].includes(existing.status)) return existing;
+    if (existing) {
+      const mergedId = mergedIntoId(existing);
+      if (mergedId) {
+        const combined = getOrder(mergedId);
+        if (combined && !["CANCELLED", "OTP_PENDING", "DRAFT"].includes(combined.status)) return combined;
+      }
+      if (!["CANCELLED", "OTP_PENDING", "DRAFT"].includes(existing.status)) return existing;
+    }
   }
-  const id = input.clientKey ?? (0, import_node_crypto4.randomUUID)();
+  const id = input.clientKey ?? (0, import_node_crypto6.randomUUID)();
   const order = tx(() => {
-    const quote = quoteOrThrow(input.items);
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const customerId = upsertCustomer(name, mobile, now);
+    foldUnpaidTicketsOnTable(table.id);
+    const open = unpaidOpenOnTable(table.id);
+    if (open) {
+      const combined = appendItemsToOpenOrder(open.id, input.items, "customer");
+      seatHeldReservation(table.id);
+      return combined;
+    }
+    const quote = quoteOrThrow(input.items);
     const created = insertPricedOrder({
       id,
       clientKey: input.clientKey ?? id,
@@ -1554,12 +2269,21 @@ async function startCheckout(input) {
   if (!table) throw new AppError(404, "TABLE", "This table is not recognized. Scan the QR code on your table.");
   if (input.clientKey) {
     const existing = getOrderByClientKey(input.clientKey);
-    if (existing && (existing.status === "OTP_PENDING" || existing.status === "CONFIRMED")) {
-      const otp = existing.status === "OTP_PENDING" ? await currentOtp(existing.id, existing.customerMobile) : null;
-      return { order: existing, ...otp };
+    if (existing && (existing.status === "CANCELLED" || existing.status === "DRAFT")) {
+      run(`UPDATE orders SET client_key = NULL WHERE id = ?`, [existing.id]);
+    } else if (existing && existing.status !== "CANCELLED" && existing.status !== "DRAFT") {
+      const mergedId = mergedIntoId(existing);
+      if (mergedId) {
+        const combined = getOrder(mergedId);
+        if (combined && combined.status !== "CANCELLED" && combined.status !== "DRAFT") return { order: combined };
+      }
+      if (existing.status === "OTP_PENDING" || existing.status === "CONFIRMED" || OPEN_STATUSES.includes(existing.status)) {
+        const otp = existing.status === "OTP_PENDING" ? await currentOtp(existing.id, existing.customerMobile) : null;
+        return { order: existing, ...otp };
+      }
     }
   }
-  const id = input.clientKey ?? (0, import_node_crypto4.randomUUID)();
+  const id = (0, import_node_crypto6.randomUUID)();
   const order = tx(() => {
     const quote = quoteOrThrow(input.items);
     return insertPricedOrder({
@@ -1573,17 +2297,23 @@ async function startCheckout(input) {
       source: "QR",
       quote,
       actor: "customer",
-      eventMessage: null
+      eventMessage: null,
+      notes: guestCheckoutNotes(input)
     });
   });
   try {
     const otp = await issueOtp(order.id, mobile);
+    notify(getOrder(order.id));
     return { order, ...otp };
   } catch (error) {
     tx(() => {
-      run(`UPDATE orders SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND status = 'OTP_PENDING'`, [(/* @__PURE__ */ new Date()).toISOString(), order.id]);
+      run(
+        `UPDATE orders SET status = 'CANCELLED', client_key = NULL, updated_at = ? WHERE id = ? AND status = 'OTP_PENDING'`,
+        [(/* @__PURE__ */ new Date()).toISOString(), order.id]
+      );
     });
-    throw error;
+    const message = error instanceof Error ? error.message : "Could not send the verification code.";
+    throw new AppError(502, "OTP", message);
   }
 }
 async function resendOtp(orderId) {
@@ -1597,6 +2327,11 @@ async function verifyCheckout(orderId, code) {
   const existing = getOrder(orderId);
   if (!existing) throw new AppError(404, "NOT_FOUND", "Order not found.");
   if (existing.status === "CONFIRMED" || OPEN_STATUSES.includes(existing.status)) return existing;
+  const alreadyMerged = mergedIntoId(existing);
+  if (alreadyMerged) {
+    const combined = getOrder(alreadyMerged);
+    if (combined && combined.status !== "CANCELLED" && combined.status !== "DRAFT") return combined;
+  }
   if (existing.status !== "OTP_PENDING") throw new AppError(409, "STATE", "This order can no longer be verified.");
   const challenge = latestChallenge(orderId);
   if (!challenge) throw new AppError(400, "OTP", "Request a code first.");
@@ -1628,14 +2363,25 @@ async function verifyCheckout(orderId, code) {
     assertStillAvailable(current2);
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const customerId = current2.customerMobile ? upsertCustomer(current2.customerName, current2.customerMobile, now) : null;
+    run(`UPDATE otp_challenges SET status = 'VERIFIED' WHERE id = ?`, [challenge.id]);
+    if (current2.tableId) {
+      foldUnpaidTicketsOnTable(current2.tableId, current2.id);
+      const open = unpaidOpenOnTable(current2.tableId, current2.id);
+      if (open) {
+        const combined = appendItemsToOpenOrder(open.id, cartLinesFromOrder(current2), "customer");
+        markMergedInto(current2.id, combined.id);
+        refreshTable(current2.tableId);
+        seatHeldReservation(current2.tableId);
+        return combined;
+      }
+    }
     run(
       `UPDATE orders SET status = 'CONFIRMED', customer_id = ?, updated_at = ?, synced_at = ? WHERE id = ?`,
       [customerId, now, now, orderId]
     );
-    run(`UPDATE otp_challenges SET status = 'VERIFIED' WHERE id = ?`, [challenge.id]);
     run(
       `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, 'OTP_PENDING', 'CONFIRMED', ?, 'customer')`,
-      [(0, import_node_crypto4.randomUUID)(), orderId, statusMessage("CONFIRMED"), now]
+      [(0, import_node_crypto6.randomUUID)(), orderId, statusMessage("CONFIRMED"), now]
     );
     refreshTable(current2.tableId);
     seatHeldReservation(current2.tableId);
@@ -1650,7 +2396,7 @@ function cancelCheckout(orderId) {
     if (!current2) return null;
     if (current2.status !== "OTP_PENDING") return current2;
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    run(`UPDATE orders SET status = 'CANCELLED', updated_at = ? WHERE id = ?`, [now, orderId]);
+    run(`UPDATE orders SET status = 'CANCELLED', client_key = NULL, updated_at = ? WHERE id = ?`, [now, orderId]);
     run(`UPDATE otp_challenges SET status = 'EXPIRED' WHERE order_id = ? AND status = 'OTP_PENDING'`, [orderId]);
     return getOrder(orderId);
   });
@@ -1667,7 +2413,7 @@ function createStaffOrder(input) {
   const name = cleanName(input.customerName);
   const table = findTable(input.tableId, input.tableCode);
   if ((input.tableId || input.tableCode) && !table) throw new AppError(404, "TABLE", "Table not found.");
-  const id = input.id ?? (0, import_node_crypto4.randomUUID)();
+  const id = input.id ?? (0, import_node_crypto6.randomUUID)();
   const order = tx(() => {
     if (table && !input.allowOpenTable) {
       const busy = get(
@@ -1713,7 +2459,7 @@ function transitionOrder(orderId, to, actor = "staff") {
     run("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", [to, now, orderId]);
     run(
       `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, ?, ?, ?)`,
-      [(0, import_node_crypto4.randomUUID)(), orderId, statusMessage(to), current2.status, to, now, actor]
+      [(0, import_node_crypto6.randomUUID)(), orderId, statusMessage(to), current2.status, to, now, actor]
     );
     refreshTable(current2.tableId);
     return getOrder(orderId);
@@ -1735,29 +2481,31 @@ function markPaid(orderId, method, amount) {
     if (!Number.isInteger(take) || take < 1) throw new AppError(400, "PAYMENT", "Enter an amount of at least \u20B91.");
     if (take > remaining) throw new AppError(400, "PAYMENT", "Amount is more than the remainder.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    run("INSERT INTO payments (id, order_id, method, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", [(0, import_node_crypto4.randomUUID)(), orderId, method, take, "PAID", now]);
+    run("INSERT INTO payments (id, order_id, method, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", [(0, import_node_crypto6.randomUUID)(), orderId, method, take, "PAID", now]);
     const closed = take === remaining;
     if (closed) {
       run(`UPDATE orders SET payment_status = 'PAID', status = 'COMPLETED', updated_at = ? WHERE id = ?`, [now, orderId]);
       run(
         `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'payment', 'Paid', ?, 'PAID', ?, 'staff')`,
-        [(0, import_node_crypto4.randomUUID)(), orderId, current2.paymentStatus, now]
+        [(0, import_node_crypto6.randomUUID)(), orderId, current2.paymentStatus, now]
       );
       if (current2.status !== "COMPLETED") {
         run(
           `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, 'COMPLETED', ?, 'staff')`,
-          [(0, import_node_crypto4.randomUUID)(), orderId, statusMessage("COMPLETED"), current2.status, now]
+          [(0, import_node_crypto6.randomUUID)(), orderId, statusMessage("COMPLETED"), current2.status, now]
         );
       }
     } else {
       run("UPDATE orders SET updated_at = ? WHERE id = ?", [now, orderId]);
       run(
         `INSERT INTO order_events (id, order_id, type, message, created_at, actor) VALUES (?, ?, 'payment', ?, ?, 'staff')`,
-        [(0, import_node_crypto4.randomUUID)(), orderId, `Part paid (${take})`, now]
+        [(0, import_node_crypto6.randomUUID)(), orderId, `Part paid (${take})`, now]
       );
     }
     refreshTable(current2.tableId);
-    return getOrder(orderId);
+    const updated = getOrder(orderId);
+    if (closed) consumeInventoryForOrder(orderId, "staff");
+    return updated;
   });
   notify(order);
   return order;
@@ -1786,7 +2534,7 @@ function splitStaffOrder(orderId, parts) {
     const taxes = current3.tax < 1 ? amounts.map(() => 0) : splitAmounts(current3.tax, amounts.length);
     const discounts = current3.discount < 1 ? amounts.map(() => 0) : splitAmounts(current3.discount, amounts.length);
     for (let index = 0; index < amounts.length; index += 1) {
-      const id = (0, import_node_crypto4.randomUUID)();
+      const id = (0, import_node_crypto6.randomUUID)();
       const notes = [`SPLIT:${index + 1}/${amounts.length}`, `PARENT:${current3.id}`, current3.notes].filter(Boolean).join("\n").slice(0, 400);
       run(
         `INSERT INTO orders (
@@ -1817,7 +2565,7 @@ function splitStaffOrder(orderId, parts) {
       );
       for (const item of current3.items) {
         const shares = item.total < 1 ? amounts.map(() => 0) : splitAmounts(item.total, amounts.length);
-        const itemId = (0, import_node_crypto4.randomUUID)();
+        const itemId = (0, import_node_crypto6.randomUUID)();
         run(
           `INSERT INTO order_items (id, order_id, menu_item_id, name_snapshot, quantity, unit_price, total, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1826,13 +2574,13 @@ function splitStaffOrder(orderId, parts) {
         for (const addon of item.addons) {
           run(
             `INSERT INTO order_item_addons (id, order_item_id, addon_id, name_snapshot, price_snapshot) VALUES (?, ?, ?, ?, ?)`,
-            [(0, import_node_crypto4.randomUUID)(), itemId, addon.addonId, addon.nameSnapshot, addon.priceSnapshot]
+            [(0, import_node_crypto6.randomUUID)(), itemId, addon.addonId, addon.nameSnapshot, addon.priceSnapshot]
           );
         }
       }
       run(
         `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, NULL, ?, ?, 'staff')`,
-        [(0, import_node_crypto4.randomUUID)(), id, `Split bill ${index + 1}/${amounts.length}`, current3.status, now]
+        [(0, import_node_crypto6.randomUUID)(), id, `Split bill ${index + 1}/${amounts.length}`, current3.status, now]
       );
       created.push(getOrder(id));
     }
@@ -1843,7 +2591,7 @@ function splitStaffOrder(orderId, parts) {
     ]);
     run(
       `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, 'CANCELLED', ?, 'staff')`,
-      [(0, import_node_crypto4.randomUUID)(), orderId, `Split into ${amounts.length} bills`, current3.status, now]
+      [(0, import_node_crypto6.randomUUID)(), orderId, `Split into ${amounts.length} bills`, current3.status, now]
     );
     refreshTable(current3.tableId);
     return created;
@@ -1867,7 +2615,11 @@ function itemEvent(item) {
     shortcutNum: item.shortcutNum,
     shortcutAlpha: item.shortcutAlpha,
     sortOrder: item.sortOrder,
-    addonGroupIds: item.addonGroupIds
+    addonGroupIds: item.addonGroupIds,
+    menuLead: item.menuLead,
+    menuSubtitle: item.menuSubtitle,
+    kcalLabel: item.kcalLabel,
+    ingredients: item.ingredients
   };
 }
 function cleanNumericShortcut(value) {
@@ -1908,7 +2660,11 @@ function updateMenuItem(id, patch) {
     isVeg: patch.isVeg !== void 0 ? patch.isVeg : current2.isVeg,
     isFavorite: patch.isFavorite !== void 0 ? patch.isFavorite : current2.isFavorite,
     shortcutNum: patch.shortcutNum !== void 0 ? cleanNumericShortcut(patch.shortcutNum) : current2.shortcutNum,
-    shortcutAlpha: patch.shortcutAlpha !== void 0 ? cleanAlphaShortcut(patch.shortcutAlpha) : current2.shortcutAlpha
+    shortcutAlpha: patch.shortcutAlpha !== void 0 ? cleanAlphaShortcut(patch.shortcutAlpha) : current2.shortcutAlpha,
+    menuLead: patch.menuLead !== void 0 ? patch.menuLead.trim().slice(0, 24) : current2.menuLead,
+    menuSubtitle: patch.menuSubtitle !== void 0 ? patch.menuSubtitle.trim().slice(0, 80) : current2.menuSubtitle,
+    kcalLabel: patch.kcalLabel !== void 0 ? patch.kcalLabel.trim().slice(0, 40) : current2.kcalLabel,
+    ingredients: patch.ingredients !== void 0 ? parseIngredientList(serializeIngredients(patch.ingredients)) : current2.ingredients
   };
   if (!Number.isInteger(next.price) || next.price < 0 || next.price > 1e5) throw new AppError(400, "PRICE", "Enter a valid price.");
   if (next.shortcutNum && next.shortcutAlpha && next.shortcutNum === next.shortcutAlpha) {
@@ -1917,8 +2673,24 @@ function updateMenuItem(id, patch) {
   assertShortcutFree(id, next.shortcutNum, next.shortcutAlpha);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   run(
-    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, updated_at = ? WHERE id = ?`,
-    [next.name, next.description, next.price, next.isAvailable ? 1 : 0, next.imageUrl, next.isVeg ? 1 : 0, next.isFavorite ? 1 : 0, next.shortcutNum, next.shortcutAlpha, now, id]
+    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ?, updated_at = ? WHERE id = ?`,
+    [
+      next.name,
+      next.description,
+      next.price,
+      next.isAvailable ? 1 : 0,
+      next.imageUrl,
+      next.isVeg ? 1 : 0,
+      next.isFavorite ? 1 : 0,
+      next.shortcutNum,
+      next.shortcutAlpha,
+      next.menuLead,
+      next.menuSubtitle,
+      next.kcalLabel,
+      serializeIngredients(next.ingredients),
+      now,
+      id
+    ]
   );
   const item = loadCatalog().items.find((entry) => entry.id === id);
   publish({ type: "menu.updated", item: itemEvent(item) });
@@ -1974,6 +2746,92 @@ function updateAddon(id, patch) {
   const addon = { id, name, price, isAvailable };
   publish({ type: "addon.updated", addon });
   return addon;
+}
+function latestOpenOrderOnTable(tableId) {
+  const row = get(
+    `${ORDER_SELECT} WHERE o.table_id = ? AND o.payment_status != 'PAID' AND o.status IN ('OTP_PENDING','CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') ORDER BY o.updated_at DESC LIMIT 1`,
+    [tableId]
+  );
+  return row ? hydrate([row])[0] : null;
+}
+function setTableStage(tableId, stage) {
+  const table = listTables().find((entry) => entry.id === tableId);
+  if (!table) throw new AppError(404, "TABLE", "Table not found.");
+  const open = latestOpenOrderOnTable(tableId);
+  if (stage === "blank") {
+    const activeRows = all(
+      `${ORDER_SELECT} WHERE o.table_id = ? AND o.status IN ('OTP_PENDING','CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') ORDER BY o.updated_at DESC`,
+      [tableId]
+    );
+    for (const row of activeRows) {
+      const order = hydrate([row])[0];
+      if (order.status === "OTP_PENDING") cancelCheckout(order.id);
+      else if (canTransition(order.status, "CANCELLED")) transitionOrder(order.id, "CANCELLED");
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    run("UPDATE tables SET status = ?, updated_at = ? WHERE id = ?", ["AVAILABLE", now, tableId]);
+    publish({ type: "table.updated", tableId });
+    return listTables().find((entry) => entry.id === tableId);
+  }
+  if (!open) throw new AppError(409, "TABLE", "No open order on this table.");
+  if (stage === "running") transitionOrder(open.id, "CONFIRMED");
+  else if (stage === "kot") transitionOrder(open.id, "PREPARING");
+  else if (stage === "printed") transitionOrder(open.id, "SERVED");
+  else if (stage === "paid") {
+    const pref = paymentPreferenceFromNotes(open.notes);
+    markPaid(open.id, pref === "CARD" ? "CARD" : pref === "UPI" ? "UPI" : "CASH");
+  }
+  refreshTable(tableId);
+  return listTables().find((entry) => entry.id === tableId);
+}
+function createMenuItem(input) {
+  const category = loadCatalog().categories.find((entry) => entry.id === input.categoryId);
+  if (!category) throw new AppError(404, "NOT_FOUND", "Category not found.");
+  const id = `item_${(0, import_node_crypto6.randomUUID)().replace(/-/g, "").slice(0, 10)}`;
+  const name = cleanName(input.name);
+  const guestDefaults = defaultGuestMetaForCategory(input.categoryId, name);
+  if (!Number.isInteger(input.price) || input.price < 0 || input.price > 1e5) throw new AppError(400, "PRICE", "Enter a valid price.");
+  const shortcutNum = cleanNumericShortcut(input.shortcutNum);
+  const shortcutAlpha = cleanAlphaShortcut(input.shortcutAlpha);
+  assertShortcutFree(id, shortcutNum, shortcutAlpha);
+  const siblings = loadCatalog().items.filter((item2) => item2.categoryId === input.categoryId);
+  const sortOrder = siblings.reduce((max, item2) => Math.max(max, item2.sortOrder), 0) + 1;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const imageUrl = cleanImage(input.imageUrl ?? null);
+  const menuLead = (input.menuLead ?? guestDefaults.menuLead).trim().slice(0, 24);
+  const menuSubtitle = (input.menuSubtitle ?? guestDefaults.menuSubtitle).trim().slice(0, 80);
+  const kcalLabel = (input.kcalLabel ?? guestDefaults.kcalLabel).trim().slice(0, 40);
+  const ingredients = parseIngredientList(
+    serializeIngredients(input.ingredients?.length ? input.ingredients : guestDefaults.ingredients)
+  );
+  run(
+    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      CAFE_ID,
+      input.categoryId,
+      name,
+      (input.description ?? "").trim().slice(0, 400),
+      input.price,
+      imageUrl,
+      input.isVeg === false ? 0 : 1,
+      input.isFavorite ? 1 : 0,
+      shortcutNum,
+      shortcutAlpha,
+      sortOrder,
+      menuLead,
+      menuSubtitle,
+      kcalLabel,
+      serializeIngredients(ingredients),
+      now
+    ]
+  );
+  const addonGroupIds = input.addonGroupIds?.length ? input.addonGroupIds : defaultAddonGroupsForCategory(input.categoryId);
+  if (addonGroupIds.length) setItemGroups(id, addonGroupIds);
+  const item = loadCatalog().items.find((entry) => entry.id === id);
+  publish({ type: "menu.updated", item: itemEvent(item) });
+  return item;
 }
 function createTable(input) {
   const name = input.name.trim();
@@ -2056,10 +2914,20 @@ function listTables() {
       `${ORDER_SELECT} WHERE o.table_id = ? AND o.status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') ORDER BY o.updated_at DESC`,
       [table.id]
     );
-    const hydrated = opens.length ? hydrate(opens) : [];
-    const latest = hydrated[0] ?? null;
+    let hydrated = opens.length ? hydrate(opens) : [];
+    let latest = hydrated[0] ?? null;
+    if (!latest) {
+      const pending = all(
+        `${ORDER_SELECT} WHERE o.table_id = ? AND o.status = 'OTP_PENDING' ORDER BY o.updated_at DESC LIMIT 1`,
+        [table.id]
+      );
+      if (pending.length) {
+        hydrated = hydrate(pending);
+        latest = hydrated[0] ?? null;
+      }
+    }
     const due = hydrated.reduce((sum, order) => sum + dueTotal(order), 0);
-    const paidRows = latest ? [] : all(
+    const paidRows = latest || table.status !== "OCCUPIED" ? [] : all(
       `${ORDER_SELECT} WHERE o.table_id = ? AND o.status = 'COMPLETED' AND o.payment_status = 'PAID' ORDER BY o.updated_at DESC LIMIT 1`,
       [table.id]
     );
@@ -2123,7 +2991,7 @@ function createCustomer(name, mobile) {
   } else {
     run(
       "INSERT INTO customers (id, cafe_id, name, mobile, order_count, last_order_at, created_at) VALUES (?, ?, ?, ?, 0, NULL, ?)",
-      [(0, import_node_crypto4.randomUUID)(), CAFE_ID, label, digits, now]
+      [(0, import_node_crypto6.randomUUID)(), CAFE_ID, label, digits, now]
     );
   }
   const row = listCustomers().find((customer) => customer.mobile === digits);
@@ -2155,7 +3023,7 @@ function createReservation(input) {
     if (Number.isNaN(parsed.getTime())) throw new AppError(400, "TIME", "Enter a valid reservation time.");
     startsAt = parsed.toISOString();
   }
-  const id = (0, import_node_crypto4.randomUUID)();
+  const id = (0, import_node_crypto6.randomUUID)();
   const now = (/* @__PURE__ */ new Date()).toISOString();
   run(
     `INSERT INTO reservations (id, cafe_id, table_id, customer_name, mobile, covers, starts_at, status, created_at)
@@ -2232,14 +3100,27 @@ function reportToday() {
 }
 function snapshot() {
   const catalog = loadCatalog();
+  const folded = tx(() => {
+    const tables = all("SELECT id FROM tables WHERE cafe_id = ?", [CAFE_ID]);
+    const changed = [];
+    for (const table of tables) {
+      const before = unpaidOpenOrdersOnTable(table.id).map((order) => order.id).join(",");
+      const combined = foldUnpaidTicketsOnTable(table.id);
+      const after = unpaidOpenOrdersOnTable(table.id).map((order) => order.id).join(",");
+      if (combined && before !== after) changed.push(combined);
+    }
+    return changed;
+  });
+  for (const order of folded) notify(order);
   return {
     cafe: catalog.cafe,
     categories: catalog.categories,
     items: catalog.items,
     addonGroups: catalog.addonGroups,
     tables: listTables(),
-    orders: listOrders().filter((order) => order.status !== "OTP_PENDING"),
+    orders: listOrders(),
     customers: listCustomers(),
+    payments: { razorpayKeyId: publicRazorpayKey() },
     serverTime: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
@@ -2306,7 +3187,11 @@ function applySyncBatch(operations) {
           isVeg: payload.isVeg,
           isFavorite: payload.isFavorite,
           shortcutNum: payload.shortcutNum,
-          shortcutAlpha: payload.shortcutAlpha
+          shortcutAlpha: payload.shortcutAlpha,
+          menuLead: payload.menuLead,
+          menuSubtitle: payload.menuSubtitle,
+          kcalLabel: payload.kcalLabel,
+          ingredients: payload.ingredients
         });
         results.push({ id: op.id, ok: true, item });
         continue;
@@ -2383,8 +3268,74 @@ app.get("/api/bootstrap", wrap((req, res) => {
     table: table ? { id: table.id, name: table.name, status: table.status } : null,
     categories: catalog.categories,
     items: catalog.items,
-    addonGroups: catalog.addonGroups
+    addonGroups: catalog.addonGroups,
+    payments: { razorpayKeyId: publicRazorpayKey() }
   });
+}));
+app.get("/api/payments/config", wrap((_req, res) => {
+  res.json({ razorpayKeyId: publicRazorpayKey() });
+}));
+async function startRazorpayForOrder(orderId, amountPaise) {
+  const order = getOrder(orderId);
+  if (!order) throw new AppError(404, "NOT_FOUND", "Order not found.");
+  if (order.paymentStatus === "PAID") throw new AppError(409, "PAYMENT", "This order is already paid.");
+  if (!OPEN_STATUSES.includes(order.status)) {
+    throw new AppError(409, "PAYMENT", "This order cannot be paid online yet.");
+  }
+  const duePaise = dueTotal(order) * 100;
+  const take = amountPaise ?? duePaise;
+  if (!Number.isInteger(take) || take < 100 || take > duePaise) {
+    throw new AppError(400, "PAYMENT", "Enter an amount up to the amount due.");
+  }
+  try {
+    const receipt = order.orderNumber ? `bill-${order.orderNumber}` : order.id.slice(0, 8);
+    const rzp = await createRazorpayOrder(take, receipt);
+    return {
+      orderId: order.id,
+      amount: rzp.amount,
+      currency: rzp.currency,
+      razorpayOrderId: rzp.id,
+      razorpayKeyId: publicRazorpayKey(),
+      cafeName: loadCatalog().cafe.name
+    };
+  } catch (error) {
+    if (error instanceof RazorpayError) throw new AppError(503, "PAYMENTS", error.message);
+    throw error;
+  }
+}
+function finishRazorpayForOrder(orderId, razorpayOrderId, razorpayPaymentId, razorpaySignature) {
+  const order = getOrder(orderId);
+  if (!order) throw new AppError(404, "NOT_FOUND", "Order not found.");
+  try {
+    verifyRazorpayPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+  } catch (error) {
+    if (error instanceof RazorpayError) throw new AppError(422, "PAYMENTS", error.message);
+    throw error;
+  }
+  const paid = markPaid(orderId, "UPI");
+  return paid;
+}
+app.post("/api/payments/razorpay/create", wrap(async (req, res) => {
+  const body = razorpayCreateSchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, "PAYMENTS", "Online payments are not configured.");
+  res.json(await startRazorpayForOrder(body.orderId, body.amount));
+}));
+app.post("/api/payments/razorpay/verify", wrap(async (req, res) => {
+  const body = razorpayVerifySchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, "PAYMENTS", "Online payments are not configured.");
+  const order = finishRazorpayForOrder(body.orderId, body.razorpayOrderId, body.razorpayPaymentId, body.razorpaySignature);
+  res.json({ order });
+}));
+app.post("/api/payments/razorpay/create-public", wrap(async (req, res) => {
+  const body = razorpayCreateSchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, "PAYMENTS", "Online payments are not configured.");
+  res.json(await startRazorpayForOrder(body.orderId, body.amount));
+}));
+app.post("/api/payments/razorpay/verify-public", wrap(async (req, res) => {
+  const body = razorpayVerifySchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, "PAYMENTS", "Online payments are not configured.");
+  const order = finishRazorpayForOrder(body.orderId, body.razorpayOrderId, body.razorpayPaymentId, body.razorpaySignature);
+  res.json({ order: toPublicOrder(order) });
 }));
 app.post("/api/checkout/place", wrap((req, res) => {
   const body = checkoutStartSchema.parse(req.body);
@@ -2513,6 +3464,22 @@ app.post("/api/orders/:id/split", requireAuth, wrap((req, res) => {
   const orders = splitStaffOrder(idOf(req.params.id), body.parts);
   res.json({ orders });
 }));
+app.post("/api/menu/items", requireAuth, wrap((req, res) => {
+  const body = menuItemCreateSchema.parse(req.body);
+  const item = createMenuItem(body);
+  res.status(201).json({ item });
+}));
+app.post("/api/media/upload", requireAuth, wrap((req, res) => {
+  const body = mediaUploadSchema.parse(req.body);
+  const ext = body.mime === "image/png" ? "png" : body.mime === "image/webp" ? "webp" : "jpg";
+  const safe = body.filename.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "photo";
+  const name = `${Date.now()}-${(0, import_node_crypto7.randomUUID)().slice(0, 8)}-${safe}.${ext}`;
+  const dir = import_node_path2.default.join(process.cwd(), "public", "uploads");
+  (0, import_node_fs4.mkdirSync)(dir, { recursive: true });
+  const raw = body.contentBase64.replace(/^data:[^;]+;base64,/, "");
+  (0, import_node_fs4.writeFileSync)(import_node_path2.default.join(dir, name), Buffer.from(raw, "base64"));
+  res.json({ url: `/uploads/${name}` });
+}));
 app.patch("/api/menu/items/:id", requireAuth, wrap((req, res) => {
   const body = menuItemPatchSchema.parse(req.body);
   const item = updateMenuItem(idOf(req.params.id), body);
@@ -2548,6 +3515,11 @@ app.post("/api/tables", requireAuth, wrap((req, res) => {
 app.patch("/api/tables/:id", requireAuth, wrap((req, res) => {
   const body = tablePatchSchema.parse(req.body);
   const table = updateTable(idOf(req.params.id), body.status);
+  res.json({ table });
+}));
+app.post("/api/tables/:id/stage", requireAuth, wrap((req, res) => {
+  const body = tableStageSchema.parse(req.body);
+  const table = setTableStage(idOf(req.params.id), body.stage);
   res.json({ table });
 }));
 app.patch("/api/orders/:id/table", requireAuth, wrap((req, res) => {
@@ -2587,6 +3559,33 @@ app.patch("/api/settings", requireAuth, wrap((req, res) => {
   const body = settingsPatchSchema.parse(req.body);
   const cafe = updateSettings(body);
   res.json({ cafe });
+}));
+app.get("/api/inventory", requireAuth, wrap((_req, res) => {
+  res.json(inventoryBundle());
+}));
+app.post("/api/inventory/items", requireAuth, wrap((req, res) => {
+  const body = inventoryItemCreateSchema.parse(req.body);
+  res.json({ item: createInventoryItem(body) });
+}));
+app.patch("/api/inventory/items/:id", requireAuth, wrap((req, res) => {
+  const body = inventoryItemPatchSchema.parse(req.body);
+  res.json({ item: updateInventoryItem(idOf(req.params.id), body) });
+}));
+app.post("/api/inventory/movements", requireAuth, wrap((req, res) => {
+  const body = inventoryMovementSchema.parse(req.body);
+  res.json({
+    movement: recordInventoryMovement({
+      ...body,
+      actor: req.user?.name ?? "staff"
+    })
+  });
+}));
+app.get("/api/inventory/recipes/:menuItemId", requireAuth, wrap((req, res) => {
+  res.json({ lines: listRecipesForMenuItem(idOf(req.params.menuItemId)) });
+}));
+app.put("/api/inventory/recipes/:menuItemId", requireAuth, wrap((req, res) => {
+  const body = menuRecipesSchema.parse(req.body);
+  res.json({ lines: saveMenuRecipes(idOf(req.params.menuItemId), body.lines) });
 }));
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Not found.", code: "NOT_FOUND" });
@@ -2691,7 +3690,181 @@ var ITEM_POS = {
   item_paneer: { num: "20", alpha: "MGC", favorite: true }
 };
 
+// server/seed-inventory.ts
+var STOCK = [
+  { id: "inv_coffee_beans", name: "Arabica Coffee Beans", sku: "RM-COF-01", category: "Raw material", unit: "kg", qty: 8.5, reorder: 2, cost: 850, supplier: "Blue Tokai" },
+  { id: "inv_milk", name: "Full Cream Milk", sku: "RM-MLK-01", category: "Raw material", unit: "l", qty: 22, reorder: 8, cost: 62, supplier: "Local dairy" },
+  { id: "inv_oat_milk", name: "Oat Milk", sku: "RM-OAT-01", category: "Raw material", unit: "l", qty: 6, reorder: 3, cost: 180, supplier: "Oatly" },
+  { id: "inv_sugar", name: "Caster Sugar", sku: "RM-SUG-01", category: "Raw material", unit: "kg", qty: 4, reorder: 1, cost: 55, supplier: "Metro" },
+  { id: "inv_cups_8oz", name: "8oz Paper Cups", sku: "PK-CUP-8", category: "Packaging", unit: "pcs", qty: 480, reorder: 120, cost: 4, supplier: "PackPro" },
+  { id: "inv_lids", name: "Cup Lids", sku: "PK-LID-01", category: "Packaging", unit: "pcs", qty: 90, reorder: 100, cost: 2, supplier: "PackPro" },
+  { id: "inv_napkins", name: "Napkins", sku: "PK-NAP-01", category: "Packaging", unit: "pcs", qty: 1200, reorder: 300, cost: 1, supplier: "PackPro" },
+  { id: "inv_chocolate", name: "Drinking Chocolate", sku: "RM-CHO-01", category: "Raw material", unit: "kg", qty: 1.2, reorder: 0.5, cost: 420, supplier: "Metro" }
+];
+var RECIPES = [
+  {
+    menuItemId: "item_espresso",
+    lines: [{ inv: "inv_coffee_beans", qty: 0.018 }, { inv: "inv_cups_8oz", qty: 1 }]
+  },
+  {
+    menuItemId: "item_cappuccino",
+    lines: [
+      { inv: "inv_coffee_beans", qty: 0.018 },
+      { inv: "inv_milk", qty: 0.12 },
+      { inv: "inv_cups_8oz", qty: 1 },
+      { inv: "inv_lids", qty: 1 }
+    ]
+  },
+  {
+    menuItemId: "item_iced_americano",
+    lines: [{ inv: "inv_coffee_beans", qty: 0.02 }, { inv: "inv_cups_8oz", qty: 1 }, { inv: "inv_lids", qty: 1 }]
+  },
+  {
+    menuItemId: "item_mocha",
+    lines: [
+      { inv: "inv_coffee_beans", qty: 0.018 },
+      { inv: "inv_milk", qty: 0.1 },
+      { inv: "inv_chocolate", qty: 0.015 },
+      { inv: "inv_cups_8oz", qty: 1 },
+      { inv: "inv_lids", qty: 1 }
+    ]
+  },
+  {
+    menuItemId: "item_latte",
+    lines: [{ inv: "inv_coffee_beans", qty: 0.018 }, { inv: "inv_milk", qty: 0.18 }, { inv: "inv_cups_8oz", qty: 1 }]
+  }
+];
+function ensureInventorySeed() {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  for (const row of STOCK) {
+    run(
+      `INSERT INTO inventory_items (id, cafe_id, name, sku, category, unit, qty, reorder_level, cost_per_unit, supplier, is_active, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         sku = excluded.sku,
+         category = excluded.category,
+         unit = excluded.unit,
+         reorder_level = excluded.reorder_level,
+         cost_per_unit = excluded.cost_per_unit,
+         supplier = excluded.supplier,
+         updated_at = excluded.updated_at`,
+      [row.id, CAFE_ID, row.name, row.sku, row.category, row.unit, row.qty, row.reorder, row.cost, row.supplier, now]
+    );
+  }
+  for (const recipe of RECIPES) {
+    const menu = get("SELECT id FROM menu_items WHERE id = ?", [recipe.menuItemId]);
+    if (!menu) continue;
+    for (const line of recipe.lines) {
+      run(
+        `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+         ON CONFLICT(menu_item_id, inventory_item_id) DO UPDATE SET qty_per_portion = excluded.qty_per_portion`,
+        [recipe.menuItemId, line.inv, line.qty]
+      );
+    }
+  }
+  const customDrinks = all(
+    "SELECT id FROM menu_items WHERE cafe_id = ? AND category_id = ?",
+    [CAFE_ID, "cat_drinks"]
+  );
+  for (const drink2 of customDrinks) {
+    if (RECIPES.some((entry) => entry.menuItemId === drink2.id)) continue;
+    for (const line of [
+      { inv: "inv_coffee_beans", qty: 0.018 },
+      { inv: "inv_milk", qty: 0.1 },
+      { inv: "inv_cups_8oz", qty: 1 }
+    ]) {
+      run(
+        `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+         ON CONFLICT(menu_item_id, inventory_item_id) DO UPDATE SET qty_per_portion = excluded.qty_per_portion`,
+        [drink2.id, line.inv, line.qty]
+      );
+    }
+  }
+}
+
 // server/seed.ts
+function ensureMenuDisplayMeta() {
+  for (const [itemId, display] of Object.entries(LEGACY_MENU_DISPLAY)) {
+    const row = get(
+      "SELECT menu_lead, kcal_label, ingredients_json FROM menu_items WHERE id = ?",
+      [itemId]
+    );
+    if (!row) continue;
+    if (row.menu_lead?.trim() || row.kcal_label?.trim() || row.ingredients_json && row.ingredients_json !== "[]") continue;
+    run(
+      "UPDATE menu_items SET menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ? WHERE id = ?",
+      [display.lead, display.titled, display.kcal, serializeIngredients(display.ingredients), itemId]
+    );
+  }
+  const customDrinks = all(
+    `SELECT id, name, menu_lead, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? AND category_id = ?`,
+    [CAFE_ID, DRINKS_CATEGORY_ID]
+  );
+  for (const row of customDrinks) {
+    if (LEGACY_MENU_DISPLAY[row.id]) continue;
+    if (row.menu_lead?.trim() || row.kcal_label?.trim() || row.ingredients_json && row.ingredients_json !== "[]") continue;
+    run(
+      "UPDATE menu_items SET menu_lead = ?, menu_subtitle = ?, ingredients_json = ? WHERE id = ?",
+      ["ICED", row.name, serializeIngredients(["coffee"]), row.id]
+    );
+  }
+}
+function ensureDrinkAddonGroups() {
+  const drinks = all(
+    "SELECT id FROM menu_items WHERE cafe_id = ? AND category_id = ?",
+    [CAFE_ID, DRINKS_CATEGORY_ID]
+  );
+  for (const drink2 of drinks) {
+    const linked = get(
+      "SELECT COUNT(*) AS n FROM menu_item_addon_groups WHERE menu_item_id = ?",
+      [drink2.id]
+    );
+    if ((linked?.n ?? 0) > 0) continue;
+    for (const groupId of DRINK_ADDON_GROUP_IDS) {
+      run("INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)", [drink2.id, groupId]);
+    }
+  }
+}
+function ensureDemoScenarios() {
+  const table = get("SELECT id FROM tables WHERE cafe_id = ? AND qr_code = ?", [CAFE_ID, "T10"]);
+  if (table) {
+    setTableStage(table.id, "blank");
+    const reserved = get("SELECT COUNT(*) AS n FROM reservations WHERE table_id = ? AND status = ?", [table.id, "HELD"]);
+    if (!(reserved?.n ?? 0)) {
+      createReservation({
+        tableId: table.id,
+        customerName: "Neha Kapoor",
+        customerMobile: "9876500199",
+        covers: 4
+      });
+    }
+  }
+  const hasDelivery = get(
+    `SELECT id FROM orders WHERE cafe_id = ? AND notes LIKE '%MODE:DELIVERY%' AND status NOT IN ('CANCELLED','DRAFT') LIMIT 1`,
+    [CAFE_ID]
+  );
+  if (!hasDelivery) {
+    createStaffOrder({
+      customerName: "Delivery \xB7 Rahul",
+      customerMobile: "9876500888",
+      items: [{ menuItemId: "item_penne", quantity: 1, addonIds: [] }],
+      notes: "MODE:DELIVERY\nADDR:12 Beach Road, Calangute"
+    });
+  }
+  const hasPickup = get(
+    `SELECT id FROM orders WHERE cafe_id = ? AND notes LIKE '%MODE:PICKUP%' AND table_id IS NULL AND status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') LIMIT 1`,
+    [CAFE_ID]
+  );
+  if (!hasPickup) {
+    createStaffOrder({
+      customerName: "Walk-in \xB7 Sam",
+      customerMobile: "9876500777",
+      items: [{ menuItemId: "item_iced_americano", quantity: 2, addonIds: [] }],
+      notes: "MODE:PICKUP"
+    });
+  }
+}
 function syncSizes() {
   run(
     `INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES ('addon_grande', 'group_size', 'Grande', 20, 1, 1)
@@ -2772,6 +3945,10 @@ async function seed() {
     syncSizes();
     syncMenu(now);
     ensureTables(now);
+    ensureDrinkAddonGroups();
+    ensureMenuDisplayMeta();
+    ensureDemoScenarios();
+    ensureInventorySeed();
     return;
   }
   run("INSERT INTO cafes (id, name, tax_bps, currency, timezone, created_at) VALUES (?, ?, 500, ?, ?, ?)", [CAFE_ID, "After Dunes", "INR", "Asia/Kolkata", now]);
@@ -2841,6 +4018,10 @@ async function seed() {
     ]
   });
   retimeOrder(fresh.id, ago(6));
+  ensureDrinkAddonGroups();
+  ensureMenuDisplayMeta();
+  ensureDemoScenarios();
+  ensureInventorySeed();
 }
 function insertAddon(id, groupId, name, price, sortOrder) {
   run("INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES (?, ?, ?, ?, 1, ?)", [id, groupId, name, price, sortOrder]);
