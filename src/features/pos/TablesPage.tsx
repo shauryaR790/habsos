@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   dueTotal,
@@ -21,14 +22,25 @@ import { useTitle } from '../../lib/useTitle';
 import { usePos } from './PosContext';
 import QRCode from 'qrcode';
 
-function fitCtxMenuPoint(x: number, y: number, width: number, height: number) {
-  const inset = 12;
-  const maxX = Math.max(inset, window.innerWidth - width - inset);
-  const maxY = Math.max(inset, window.innerHeight - height - inset);
-  return {
-    x: Math.min(Math.max(inset, x), maxX),
-    y: Math.min(Math.max(inset, y), maxY),
-  };
+function viewportBox(pad = 12) {
+  const vv = window.visualViewport;
+  const left = (vv?.offsetLeft ?? 0) + pad;
+  const top = (vv?.offsetTop ?? 0) + pad;
+  const right = (vv?.offsetLeft ?? 0) + (vv?.width ?? window.innerWidth) - pad;
+  const bottom = (vv?.offsetTop ?? 0) + (vv?.height ?? window.innerHeight) - pad;
+  return { left, top, right, bottom };
+}
+
+function nudgeCtxMenu(x: number, y: number, el: HTMLElement) {
+  const box = viewportBox();
+  const rect = el.getBoundingClientRect();
+  let nx = x;
+  let ny = y;
+  if (rect.right > box.right) nx -= rect.right - box.right;
+  if (rect.bottom > box.bottom) ny -= rect.bottom - box.bottom;
+  if (rect.left < box.left) nx += box.left - rect.left;
+  if (rect.top < box.top) ny += box.top - rect.top;
+  return { x: nx, y: ny };
 }
 
 const LEGEND: Array<{ id: TableVisualState; label: string }> = [
@@ -97,12 +109,22 @@ export function TablesPage() {
 
   useLayoutEffect(() => {
     if (!ctxMenu || !ctxRef.current) return;
-    const { width, height } = ctxRef.current.getBoundingClientRect();
-    const next = fitCtxMenuPoint(ctxMenu.x, ctxMenu.y, width, height);
-    if (next.x !== ctxMenu.x || next.y !== ctxMenu.y) {
+    const next = nudgeCtxMenu(ctxMenu.x, ctxMenu.y, ctxRef.current);
+    if (Math.round(next.x) !== Math.round(ctxMenu.x) || Math.round(next.y) !== Math.round(ctxMenu.y)) {
       setCtxMenu((current) => (current ? { ...current, ...next } : current));
     }
-  }, [ctxMenu?.table.id]);
+  }, [ctxMenu?.table.id, ctxMenu?.x, ctxMenu?.y]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [ctxMenu]);
 
   useEffect(() => {
     if (!contact?.qrCode || dialog !== 'contactless') {
@@ -311,8 +333,7 @@ export function TablesPage() {
                     onClick={() => openTable(table)}
                     onContextMenu={(event) => {
                       event.preventDefault();
-                      const point = fitCtxMenuPoint(event.clientX, event.clientY, 172, 252);
-                      setCtxMenu({ table, ...point });
+                      setCtxMenu({ table, x: event.clientX, y: event.clientY });
                     }}
                   >
                     <strong>{tableLabel(table.name)}</strong>
@@ -436,25 +457,28 @@ export function TablesPage() {
         </Modal>
       ) : null}
 
-      {ctxMenu ? (
-        <div
-          ref={ctxRef}
-          className="tv-ctx"
-          style={{ top: ctxMenu.y, left: ctxMenu.x }}
-          role="menu"
-          onMouseLeave={() => setCtxMenu(null)}
-        >
-          <p className="tv-ctx-title">{tableLabel(ctxMenu.table.name)}</p>
-          {ctxMenu.table.reservation ? (
-            <button type="button" disabled={busy} onClick={() => void unreserve()}>Unreserve</button>
-          ) : null}
-          <button type="button" disabled={busy} onClick={() => void applyStage('blank')}>Mark blank</button>
-          <button type="button" disabled={busy} onClick={() => void applyStage('running')}>Running</button>
-          <button type="button" disabled={busy} onClick={() => void applyStage('kot')}>KOT / kitchen</button>
-          <button type="button" disabled={busy} onClick={() => void applyStage('printed')}>Bill printed</button>
-          <button type="button" disabled={busy} onClick={() => void applyStage('paid')}>Paid</button>
-        </div>
-      ) : null}
+      {ctxMenu && typeof document !== 'undefined'
+        ? createPortal(
+          <div
+            ref={ctxRef}
+            className="tv-ctx"
+            style={{ top: ctxMenu.y, left: ctxMenu.x }}
+            role="menu"
+            onMouseLeave={() => setCtxMenu(null)}
+          >
+            <p className="tv-ctx-title">{tableLabel(ctxMenu.table.name)}</p>
+            {ctxMenu.table.reservation ? (
+              <button type="button" disabled={busy} onClick={() => void unreserve()}>Unreserve</button>
+            ) : null}
+            <button type="button" disabled={busy} onClick={() => void applyStage('blank')}>Mark blank</button>
+            <button type="button" disabled={busy} onClick={() => void applyStage('running')}>Running</button>
+            <button type="button" disabled={busy} onClick={() => void applyStage('kot')}>KOT / kitchen</button>
+            <button type="button" disabled={busy} onClick={() => void applyStage('printed')}>Bill printed</button>
+            <button type="button" disabled={busy} onClick={() => void applyStage('paid')}>Paid</button>
+          </div>,
+          document.body,
+        )
+        : null}
 
       {dialog === 'add' ? (
         <Modal open title="Add Table" onClose={() => setDialog(null)}>

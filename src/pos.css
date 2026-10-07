@@ -1476,7 +1476,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 
 .tv-ctx {
   position: fixed;
-  z-index: 40;
+  z-index: 10000;
   min-width: 10rem;
   max-width: min(14rem, calc(100vw - 24px));
   max-height: min(70vh, calc(100dvh - 24px));
