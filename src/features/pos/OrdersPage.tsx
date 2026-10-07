@@ -7,7 +7,6 @@ import {
   orderFlag,
   paidTotal,
   registerPath,
-  maskMobile,
   tableLabel,
   type Order,
 } from '../../../shared/domain';
