@@ -78,18 +78,6 @@ function ensureDemoScenarios() {
       notes: 'MODE:DELIVERY\nADDR:12 Beach Road, Calangute',
     });
   }
-  const hasPickup = get<{ id: string }>(
-    `SELECT id FROM orders WHERE cafe_id = ? AND notes LIKE '%MODE:PICKUP%' AND table_id IS NULL AND status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') LIMIT 1`,
-    [CAFE_ID],
-  );
-  if (!hasPickup) {
-    createStaffOrder({
-      customerName: 'Walk-in · Sam',
-      customerMobile: '9876500777',
-      items: [{ menuItemId: 'item_iced_americano', quantity: 2, addonIds: [] }],
-      notes: 'MODE:PICKUP',
-    });
-  }
 }
 
 function syncSizes() {
