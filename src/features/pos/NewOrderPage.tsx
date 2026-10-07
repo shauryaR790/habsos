@@ -622,42 +622,44 @@ export function NewOrderPage() {
               ))}
             </div>
           ) : null}
-          {lines.length === 0 ? (
-            <p className="bill-empty">No Item Selected<br /><span>Please Select Item from Left Menu Item</span></p>
-          ) : (
-            <ul className="bill-lines">
-              {lines.map((line, index) => {
-                const row = priced?.lines[index];
-                return (
-                  <li key={line.lineId}>
-                    <button type="button" className="bill-x" onClick={() => setLines((current) => current.filter((entry) => entry.lineId !== line.lineId))} aria-label="Remove item">×</button>
-                    <button type="button" className="bill-line-name" onClick={() => setEditLineId(line.lineId)}>
-                      <strong>{row?.name ?? pos.items.find((entry) => entry.id === line.menuItemId)?.name}</strong>
-                      {row?.addons.length ? <i>{row.addons.map((addon) => addon.name).join(', ')}</i> : null}
-                      {line.notes ? <i className="bill-note">{line.notes}</i> : null}
-                    </button>
-                    <span className="bill-qty">
-                      <button type="button" onClick={() => setQty(line.lineId, line.quantity - 1)} aria-label="Decrease quantity">−</button>
-                      <input
-                        aria-label="Quantity"
-                        inputMode="numeric"
-                        value={line.quantity}
-                        onChange={(event) => {
-                          const raw = event.target.value.replace(/\D/g, '');
-                          if (raw === '') return;
-                          setQty(line.lineId, Number(raw));
-                        }}
-                      />
-                      <button type="button" onClick={() => setQty(line.lineId, line.quantity + 1)} aria-label="Increase quantity">+</button>
-                    </span>
-                    <b>{splitChild && liveOrder?.items[index] ? formatINR(liveOrder.items[index].total) : row ? formatINR(row.total) : '—'}</b>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {typeof quote === 'string' ? <p className="field-error">{quote}</p> : null}
-          {error ? <p className="field-error" role="alert">{error}</p> : null}
+          <div className="bill-cart-scroll">
+            {lines.length === 0 ? (
+              <p className="bill-empty">No Item Selected<br /><span>Please Select Item from Left Menu Item</span></p>
+            ) : (
+              <ul className="bill-lines">
+                {lines.map((line, index) => {
+                  const row = priced?.lines[index];
+                  return (
+                    <li key={line.lineId}>
+                      <button type="button" className="bill-x" onClick={() => setLines((current) => current.filter((entry) => entry.lineId !== line.lineId))} aria-label="Remove item">×</button>
+                      <button type="button" className="bill-line-name" onClick={() => setEditLineId(line.lineId)}>
+                        <strong>{row?.name ?? pos.items.find((entry) => entry.id === line.menuItemId)?.name}</strong>
+                        {row?.addons.length ? <i>{row.addons.map((addon) => addon.name).join(', ')}</i> : null}
+                        {line.notes ? <i className="bill-note">{line.notes}</i> : null}
+                      </button>
+                      <span className="bill-qty">
+                        <button type="button" onClick={() => setQty(line.lineId, line.quantity - 1)} aria-label="Decrease quantity">−</button>
+                        <input
+                          aria-label="Quantity"
+                          inputMode="numeric"
+                          value={line.quantity}
+                          onChange={(event) => {
+                            const raw = event.target.value.replace(/\D/g, '');
+                            if (raw === '') return;
+                            setQty(line.lineId, Number(raw));
+                          }}
+                        />
+                        <button type="button" onClick={() => setQty(line.lineId, line.quantity + 1)} aria-label="Increase quantity">+</button>
+                      </span>
+                      <b>{splitChild && liveOrder?.items[index] ? formatINR(liveOrder.items[index].total) : row ? formatINR(row.total) : '—'}</b>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {typeof quote === 'string' ? <p className="field-error">{quote}</p> : null}
+            {error ? <p className="field-error" role="alert">{error}</p> : null}
+          </div>
 
           <footer className="bill-foot">
             <div className="bill-foot-top">

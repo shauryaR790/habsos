@@ -10,6 +10,18 @@
 html:has(.pos),
 html:has(.login) {
   zoom: 1.25;
+  height: 100%;
+  overflow: hidden;
+}
+body:has(.pos),
+body:has(.login) {
+  height: 100%;
+  overflow: hidden;
+}
+body:has(.pos) #root,
+body:has(.login) #root {
+  height: 100%;
+  overflow: hidden;
 }
 
 .pos,
@@ -323,12 +335,20 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 
 /* --------------------------------------------------------------- shell */
 
-.pos { min-height: 100dvh; display: grid; grid-template-columns: 1fr; }
+.pos {
+  --pos-viewport: calc(100dvh / 1.25);
+  height: var(--pos-viewport);
+  max-height: var(--pos-viewport);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .pos-side, .pos-top, .bottom-nav { display: none !important; }
 .pos-main {
   min-width: 0;
-  min-height: 100dvh;
-  max-height: 100dvh;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -974,7 +994,15 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 
 /* --------------------------------------------------------------- login */
 
-.login { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #fff; }
+.login {
+  height: var(--pos-viewport, calc(100dvh / 1.25));
+  max-height: var(--pos-viewport, calc(100dvh / 1.25));
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #fff;
+  overflow: auto;
+}
 .login form { width: min(380px, 100%); border: 1px solid var(--rule); border-radius: 2px; background: var(--fill); padding: 24px; display: grid; gap: 14px; box-shadow: none; }
 .login .eyebrow { font-family: var(--font); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 0.875rem; color: var(--muted); }
 .login h1 { font-size: 2rem; line-height: 1.2; margin-bottom: 0; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
@@ -1631,8 +1659,17 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-left: 1px solid var(--hair);
   background: #fff;
+}
+.bill-cart-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .bill-cart-head {
   display: flex;
@@ -1677,21 +1714,19 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   color: #fff;
 }
 .bill-empty {
-  margin: auto;
+  margin: 0;
   text-align: center;
   color: var(--muted);
   font-size: 13px;
   padding: 24px;
+  flex: 1;
 }
 .bill-empty span { font-size: 12px; color: var(--faint); }
 .bill-lines {
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 .bill-lines li {
   display: grid;
