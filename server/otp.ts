@@ -12,7 +12,7 @@ export interface OtpProvider {
 const devCodes = new Map<string, string>();
 
 export function rememberDevCode(challengeId: string, code: string) {
-  if (!isProduction()) devCodes.set(challengeId, code);
+  if (!isProduction() || env.otpDevExpose) devCodes.set(challengeId, code);
 }
 
 export function peekDevCode(challengeId: string) {
@@ -122,7 +122,7 @@ class Fast2SmsOtpProvider implements OtpProvider {
 }
 
 export function createOtpProvider(): OtpProvider {
-  if (!isProduction() && env.otpDevExpose) {
+  if (env.otpDevExpose) {
     return new MockOtpProvider();
   }
   if (env.otpProvider === 'fast2sms' || (env.fast2smsApiKey && env.otpProvider !== 'sms' && env.otpProvider !== 'mock')) {

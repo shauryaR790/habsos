@@ -92,9 +92,9 @@ function isProduction() {
   return env.nodeEnv === "production";
 }
 function exposeDevOtp() {
+  if (env.otpDevExpose) return true;
   if (isProduction()) return false;
-  if (env.otpProvider === "mock") return true;
-  return env.otpDevExpose;
+  return env.otpProvider === "mock";
 }
 function razorpayEnabled() {
   return Boolean(env.razorpayKeyId && env.razorpayKeySecret);
@@ -1480,7 +1480,7 @@ function defaultGuestMetaForCategory(categoryId, name) {
 var import_node_crypto3 = require("node:crypto");
 var devCodes = /* @__PURE__ */ new Map();
 function rememberDevCode(challengeId, code) {
-  if (!isProduction()) devCodes.set(challengeId, code);
+  if (!isProduction() || env.otpDevExpose) devCodes.set(challengeId, code);
 }
 function peekDevCode(challengeId) {
   return devCodes.get(challengeId);
@@ -1575,7 +1575,7 @@ var Fast2SmsOtpProvider = class {
   }
 };
 function createOtpProvider() {
-  if (!isProduction() && env.otpDevExpose) {
+  if (env.otpDevExpose) {
     return new MockOtpProvider();
   }
   if (env.otpProvider === "fast2sms" || env.fast2smsApiKey && env.otpProvider !== "sms" && env.otpProvider !== "mock") {

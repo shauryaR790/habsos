@@ -50,10 +50,11 @@ export function isProduction() {
   return env.nodeEnv === 'production';
 }
 
+/** When true, checkout responses may include devCode and the UI shows “Tap to fill”. */
 export function exposeDevOtp() {
+  if (env.otpDevExpose) return true;
   if (isProduction()) return false;
-  if (env.otpProvider === 'mock') return true;
-  return env.otpDevExpose;
+  return env.otpProvider === 'mock';
 }
 
 export function razorpayEnabled() {
