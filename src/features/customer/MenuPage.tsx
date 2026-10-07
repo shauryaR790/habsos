@@ -10,7 +10,8 @@ import { ProductCard } from '../../components/ProductCard';
 import { useCart, type Bootstrap, type CartLine } from './cart';
 import { CartPill } from './CartPill';
 import { ItemSheet } from './ItemSheet';
-import { COLD_DRINKS, RECOMMENDED } from './menuFacts';
+import { isColdMenuItem } from '../../../shared/menuDisplay';
+import { RECOMMENDED } from './menuFacts';
 import { TableScanner } from './TableScanner';
 
 export function MenuPage() {
@@ -83,7 +84,7 @@ export function MenuPage() {
   const foodCategories = categories.filter((category) => category.id !== 'cat_drinks');
   const drinks = available
     .filter((item) => item.categoryId === 'cat_drinks')
-    .filter((item) => temperature === 'all' || (temperature === 'cold' ? COLD_DRINKS.has(item.id) : !COLD_DRINKS.has(item.id)))
+    .filter((item) => temperature === 'all' || (temperature === 'cold' ? isColdMenuItem(item) : !isColdMenuItem(item)))
     .sort((a, b) => {
       if (a.id === 'item_mint_latte') return 1;
       if (b.id === 'item_mint_latte') return -1;

@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { ZodError } from 'zod';
@@ -8,22 +9,47 @@ import {
   categoryPatchSchema,
   checkoutStartSchema,
   checkoutVerifySchema,
+  customerCreateSchema,
   itemGroupsSchema,
   loginSchema,
+  mediaUploadSchema,
+  menuItemCreateSchema,
   menuItemPatchSchema,
   moveSchema,
+  tableStageSchema,
+  orderTableSchema,
   paymentSchema,
+  reservationCreateSchema,
   resendSchema,
+  razorpayCreateSchema,
+  razorpayVerifySchema,
   settingsPatchSchema,
+  splitSchema,
+  staffOrderPatchSchema,
   staffOrderSchema,
   statusSchema,
   syncBatchSchema,
+  tableCreateSchema,
   tablePatchSchema,
+  inventoryItemCreateSchema,
+  inventoryItemPatchSchema,
+  inventoryMovementSchema,
+  menuRecipesSchema,
 } from '../shared/schemas';
+import {
+  createInventoryItem,
+  inventoryBundle,
+  listRecipesForMenuItem,
+  recordInventoryMovement,
+  saveMenuRecipes,
+  updateInventoryItem,
+} from './inventory';
 import { clearSessionCookie, createSession, destroySession, getSessionUser, readCookie, sessionCookie, verifyPassword } from './auth';
 import { get } from './db';
-import { exposeDevOtp, isProduction } from './env';
-import { AppError, applySyncBatch, cancelCheckout, createStaffOrder, getOrder, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, placeGuestOrder, reportToday, resendOtp, setItemGroups, snapshot, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
+import { dueTotal, OPEN_STATUSES } from '../shared/domain';
+import { exposeDevOtp, isProduction, razorpayEnabled } from './env';
+import { AppError, applySyncBatch, cancelCheckout, cancelReservation, createCustomer, createMenuItem, createReservation, createStaffOrder, createTable, getOrder, listCustomerOrders, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, placeGuestOrder, reassignOrderTable, replaceStaffOrderItems, reportRange, reportToday, resendOtp, setItemGroups, setTableStage, snapshot, splitStaffOrder, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
+import { createRazorpayOrder, publicRazorpayKey, RazorpayError, verifyRazorpayPayment } from './razorpay';
 import { otpProvider } from './otp';
 import { openStream, touchDevice } from './realtime';
 
@@ -89,7 +115,85 @@ app.get('/api/bootstrap', wrap((req, res) => {
     categories: catalog.categories,
     items: catalog.items,
     addonGroups: catalog.addonGroups,
+    payments: { razorpayKeyId: publicRazorpayKey() },
   });
+}));
+
+app.get('/api/payments/config', wrap((_req, res) => {
+  res.json({ razorpayKeyId: publicRazorpayKey() });
+}));
+
+async function startRazorpayForOrder(orderId: string, amountPaise?: number) {
+  const order = getOrder(orderId);
+  if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found.');
+  if (order.paymentStatus === 'PAID') throw new AppError(409, 'PAYMENT', 'This order is already paid.');
+  if (!OPEN_STATUSES.includes(order.status)) {
+    throw new AppError(409, 'PAYMENT', 'This order cannot be paid online yet.');
+  }
+  const duePaise = dueTotal(order) * 100;
+  const take = amountPaise ?? duePaise;
+  if (!Number.isInteger(take) || take < 100 || take > duePaise) {
+    throw new AppError(400, 'PAYMENT', 'Enter an amount up to the amount due.');
+  }
+  try {
+    const receipt = order.orderNumber ? `bill-${order.orderNumber}` : order.id.slice(0, 8);
+    const rzp = await createRazorpayOrder(take, receipt);
+    return {
+      orderId: order.id,
+      amount: rzp.amount,
+      currency: rzp.currency,
+      razorpayOrderId: rzp.id,
+      razorpayKeyId: publicRazorpayKey(),
+      cafeName: loadCatalog().cafe.name,
+    };
+  } catch (error) {
+    if (error instanceof RazorpayError) throw new AppError(503, 'PAYMENTS', error.message);
+    throw error;
+  }
+}
+
+function finishRazorpayForOrder(
+  orderId: string,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+) {
+  const order = getOrder(orderId);
+  if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found.');
+  try {
+    verifyRazorpayPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+  } catch (error) {
+    if (error instanceof RazorpayError) throw new AppError(422, 'PAYMENTS', error.message);
+    throw error;
+  }
+  const paid = markPaid(orderId, 'UPI');
+  return paid;
+}
+
+app.post('/api/payments/razorpay/create', wrap(async (req, res) => {
+  const body = razorpayCreateSchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, 'PAYMENTS', 'Online payments are not configured.');
+  res.json(await startRazorpayForOrder(body.orderId, body.amount));
+}));
+
+app.post('/api/payments/razorpay/verify', wrap(async (req, res) => {
+  const body = razorpayVerifySchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, 'PAYMENTS', 'Online payments are not configured.');
+  const order = finishRazorpayForOrder(body.orderId, body.razorpayOrderId, body.razorpayPaymentId, body.razorpaySignature);
+  res.json({ order });
+}));
+
+app.post('/api/payments/razorpay/create-public', wrap(async (req, res) => {
+  const body = razorpayCreateSchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, 'PAYMENTS', 'Online payments are not configured.');
+  res.json(await startRazorpayForOrder(body.orderId, body.amount));
+}));
+
+app.post('/api/payments/razorpay/verify-public', wrap(async (req, res) => {
+  const body = razorpayVerifySchema.parse(req.body);
+  if (!razorpayEnabled()) throw new AppError(503, 'PAYMENTS', 'Online payments are not configured.');
+  const order = finishRazorpayForOrder(body.orderId, body.razorpayOrderId, body.razorpayPaymentId, body.razorpaySignature);
+  res.json({ order: toPublicOrder(order) });
 }));
 
 app.post('/api/checkout/place', wrap((req, res) => {
@@ -216,6 +320,12 @@ app.post('/api/orders', requireAuth, wrap((req, res) => {
   res.status(201).json({ order });
 }));
 
+app.patch('/api/orders/:id', requireAuth, wrap((req, res) => {
+  const body = staffOrderPatchSchema.parse(req.body);
+  const order = replaceStaffOrderItems(idOf(req.params.id), body);
+  res.json({ order });
+}));
+
 app.post('/api/orders/:id/status', requireAuth, wrap((req, res) => {
   const body = statusSchema.parse(req.body);
   const order = transitionOrder(idOf(req.params.id), body.status);
@@ -224,8 +334,32 @@ app.post('/api/orders/:id/status', requireAuth, wrap((req, res) => {
 
 app.post('/api/orders/:id/payments', requireAuth, wrap((req, res) => {
   const body = paymentSchema.parse(req.body);
-  const order = markPaid(idOf(req.params.id), body.method);
+  const order = markPaid(idOf(req.params.id), body.method, body.amount);
   res.json({ order });
+}));
+
+app.post('/api/orders/:id/split', requireAuth, wrap((req, res) => {
+  const body = splitSchema.parse(req.body);
+  const orders = splitStaffOrder(idOf(req.params.id), body.parts);
+  res.json({ orders });
+}));
+
+app.post('/api/menu/items', requireAuth, wrap((req, res) => {
+  const body = menuItemCreateSchema.parse(req.body);
+  const item = createMenuItem(body);
+  res.status(201).json({ item });
+}));
+
+app.post('/api/media/upload', requireAuth, wrap((req, res) => {
+  const body = mediaUploadSchema.parse(req.body);
+  const ext = body.mime === 'image/png' ? 'png' : body.mime === 'image/webp' ? 'webp' : 'jpg';
+  const safe = body.filename.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 40) || 'photo';
+  const name = `${Date.now()}-${randomUUID().slice(0, 8)}-${safe}.${ext}`;
+  const dir = path.join(process.cwd(), 'public', 'uploads');
+  mkdirSync(dir, { recursive: true });
+  const raw = body.contentBase64.replace(/^data:[^;]+;base64,/, '');
+  writeFileSync(path.join(dir, name), Buffer.from(raw, 'base64'));
+  res.json({ url: `/uploads/${name}` });
 }));
 
 app.patch('/api/menu/items/:id', requireAuth, wrap((req, res) => {
@@ -262,14 +396,54 @@ app.get('/api/tables', requireAuth, wrap((_req, res) => {
   res.json({ tables: listTables() });
 }));
 
+app.post('/api/tables', requireAuth, wrap((req, res) => {
+  const body = tableCreateSchema.parse(req.body);
+  res.status(201).json({ table: createTable(body) });
+}));
+
 app.patch('/api/tables/:id', requireAuth, wrap((req, res) => {
   const body = tablePatchSchema.parse(req.body);
   const table = updateTable(idOf(req.params.id), body.status);
   res.json({ table });
 }));
 
+app.post('/api/tables/:id/stage', requireAuth, wrap((req, res) => {
+  const body = tableStageSchema.parse(req.body);
+  const table = setTableStage(idOf(req.params.id), body.stage);
+  res.json({ table });
+}));
+
+app.patch('/api/orders/:id/table', requireAuth, wrap((req, res) => {
+  const body = orderTableSchema.parse(req.body);
+  res.json({ order: reassignOrderTable(idOf(req.params.id), body.tableId) });
+}));
+
 app.get('/api/customers', requireAuth, wrap((_req, res) => {
   res.json({ customers: listCustomers() });
+}));
+
+app.post('/api/customers', requireAuth, wrap((req, res) => {
+  const body = customerCreateSchema.parse(req.body);
+  res.status(201).json({ customer: createCustomer(body.name, body.mobile) });
+}));
+
+app.get('/api/customers/:id/orders', requireAuth, wrap((req, res) => {
+  res.json({ orders: listCustomerOrders(idOf(req.params.id)) });
+}));
+
+app.post('/api/reservations', requireAuth, wrap((req, res) => {
+  const body = reservationCreateSchema.parse(req.body);
+  res.status(201).json({ reservation: createReservation(body) });
+}));
+
+app.post('/api/reservations/:id/cancel', requireAuth, wrap((req, res) => {
+  res.json({ table: cancelReservation(idOf(req.params.id)) });
+}));
+
+app.get('/api/reports', requireAuth, wrap((req, res) => {
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+  res.json(reportRange(from, to));
 }));
 
 app.get('/api/reports/today', requireAuth, wrap((_req, res) => {
@@ -285,6 +459,39 @@ app.patch('/api/settings', requireAuth, wrap((req, res) => {
   const body = settingsPatchSchema.parse(req.body);
   const cafe = updateSettings(body);
   res.json({ cafe });
+}));
+
+app.get('/api/inventory', requireAuth, wrap((_req, res) => {
+  res.json(inventoryBundle());
+}));
+
+app.post('/api/inventory/items', requireAuth, wrap((req, res) => {
+  const body = inventoryItemCreateSchema.parse(req.body);
+  res.json({ item: createInventoryItem(body) });
+}));
+
+app.patch('/api/inventory/items/:id', requireAuth, wrap((req, res) => {
+  const body = inventoryItemPatchSchema.parse(req.body);
+  res.json({ item: updateInventoryItem(idOf(req.params.id), body) });
+}));
+
+app.post('/api/inventory/movements', requireAuth, wrap((req, res) => {
+  const body = inventoryMovementSchema.parse(req.body);
+  res.json({
+    movement: recordInventoryMovement({
+      ...body,
+      actor: req.user?.name ?? 'staff',
+    }),
+  });
+}));
+
+app.get('/api/inventory/recipes/:menuItemId', requireAuth, wrap((req, res) => {
+  res.json({ lines: listRecipesForMenuItem(idOf(req.params.menuItemId)) });
+}));
+
+app.put('/api/inventory/recipes/:menuItemId', requireAuth, wrap((req, res) => {
+  const body = menuRecipesSchema.parse(req.body);
+  res.json({ lines: saveMenuRecipes(idOf(req.params.menuItemId), body.lines) });
 }));
 
 app.use('/api', (_req, res) => {

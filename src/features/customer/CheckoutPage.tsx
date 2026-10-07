@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatINR, maskMobile, normalizeMobile, type PublicOrder } from '../../../shared/domain';
+import { formatINR, maskMobile, normalizeMobile, type GuestPaymentPreference, type PublicOrder } from '../../../shared/domain';
+import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Input } from '../../components/Input';
@@ -33,6 +34,8 @@ export function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [placed, setPlaced] = useState<PublicOrder | null>(null);
+  const [payPref, setPayPref] = useState<GuestPaymentPreference>('DESK');
+  const [address, setAddress] = useState('');
 
   useEffect(() => {
     if (cart.catalog) return;
@@ -108,6 +111,8 @@ export function CheckoutPage() {
           customerMobile: digits,
           clientKey: clientKey.current,
           items,
+          paymentPreference: payPref,
+          address: address.trim() || undefined,
         }),
       });
       if (result.order.status === 'CONFIRMED' || !result.challengeId) {
@@ -134,7 +139,18 @@ export function CheckoutPage() {
         method: 'POST',
         body: JSON.stringify({ orderId: otp.orderId, code }),
       });
-      finish(result.order);
+      let order = result.order;
+      if (order.paymentPreference !== 'DESK' && cart.catalog?.payments?.razorpayKeyId) {
+        await collectRazorpayPayment({
+          orderId: order.id,
+          public: true,
+          customerName: order.customerName,
+          customerMobile: mobile,
+        });
+        const paid = await api<{ order: PublicOrder }>(`/api/orders/${order.id}/public`);
+        order = paid.order;
+      }
+      finish(order);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'That code did not match.');
       setBusy(false);
@@ -221,6 +237,22 @@ export function CheckoutPage() {
               <h2>Who’s at the table</h2>
               <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
               <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
+              <Input label="Address" value={address} onChange={(event) => setAddress(event.target.value)} />
+              <label className="field">
+                <span>Payment method</span>
+                <select
+                  value={payPref}
+                  aria-label="Payment method"
+                  onChange={(event) => setPayPref(event.target.value as GuestPaymentPreference)}
+                >
+                  <option value="DESK">Pay at desk</option>
+                  <option value="UPI">UPI online</option>
+                  <option value="CARD">Card online</option>
+                </select>
+              </label>
+              {payPref !== 'DESK' && !cart.catalog?.payments?.razorpayKeyId ? (
+                <p className="fine">Online pay is not configured — you can still order and pay at the desk.</p>
+              ) : null}
             </section>
             <section className="check-order">
               <h2>This order</h2>

@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import type { TableInfo } from '../../../shared/domain';
 import { useTitle } from '../../lib/useTitle';
 import { api } from '../../lib/api';
 import { habdb } from '../../db/idb';
 import { Button } from '../../components/Button';
+import { Drawer } from '../../components/Drawer';
 import { Input } from '../../components/Input';
 import { Modal } from '../../components/Modal';
 import { pushToast } from '../../components/Toast';
+import { printAllTableQr } from '../../lib/printQr';
 import { usePos } from './PosContext';
 
 type BeforeInstall = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -18,6 +22,7 @@ export function SettingsPage() {
   const [prompt, setPrompt] = useState<BeforeInstall | null>(null);
   const [wipe, setWipe] = useState(false);
   const [provider, setProvider] = useState<string>('');
+  const [qrTable, setQrTable] = useState<TableInfo | null>(null);
 
   useEffect(() => {
     setName(pos.cafe?.name ?? 'After Dunes');
@@ -39,37 +44,78 @@ export function SettingsPage() {
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
   return (
-    <section className="stack">
-      <h1>Settings</h1>
-      <form
-        className="stack"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const taxBps = Math.round(Number(tax) * 100);
-          void pos.saveSettings({ name, taxBps });
-        }}
-      >
-        <Input label="Cafe name" value={name} onChange={(event) => setName(event.target.value)} />
-        <Input label="Tax percent" type="number" min={0} max={28} step={0.01} value={tax} onChange={(event) => setTax(event.target.value)} />
-        <Button type="submit">Save</Button>
-      </form>
-      <section className="stack">
-        <h2>This device</h2>
-        <p>Connection: {pos.conn}</p>
-        {provider ? <p>OTP provider: {provider}</p> : null}
-        {prompt ? <Button onClick={() => void prompt.prompt()}>Install app</Button> : <p>Use the browser menu to install After Dunes for a full-screen register.</p>}
-        {ios ? <p>On iPhone or iPad: Share, then Add to Home Screen.</p> : null}
-        <Button variant="ghost" onClick={() => void pos.signOut()}>Sign out</Button>
-        <Button variant="danger" onClick={() => setWipe(true)}>Clear local data</Button>
+    <section className="pos-page">
+      <header className="page-head">
+        <h1>Settings</h1>
+      </header>
+
+      <section className="panel">
+        <h2>Cafe</h2>
+        <form
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void pos.saveSettings({ name, taxBps: Math.round(Number(tax) * 100) });
+          }}
+        >
+          <Input label="Cafe name" value={name} onChange={(event) => setName(event.target.value)} />
+          <Input label="Tax percent" type="number" min={0} max={28} step={0.01} value={tax} onChange={(event) => setTax(event.target.value)} />
+          <p className="fine">Timezone {pos.cafe?.timezone ?? 'Asia/Kolkata'} · integer rupees. Guest menu names and prices stay as published.</p>
+          <Button type="submit">Save</Button>
+        </form>
       </section>
-      <section className="stack">
+
+      <section className="panel">
+        <h2>Staff</h2>
+        <p className="fine">{pos.user?.name ?? 'Staff'} · {pos.user?.email ?? ''} · {pos.user?.role ?? ''}</p>
+      </section>
+
+      <section className="panel">
+        <h2>Loyalty</h2>
+        <p className="fine">
+          Visits and spend follow the customer mobile on saved bills. Two or more visits mark loyalty.
+          The register Loyalty button attaches that guest to the current ticket.
+        </p>
+      </section>
+
+      <section className="panel">
+        <h2>Table QR codes</h2>
+        <p className="fine">Print one per table. Scanning it opens the guest menu for that table.</p>
+        <div className="chip-row">
+          {pos.tables.map((table) => (
+            <button key={table.id} type="button" className="chip" onClick={() => setQrTable(table)}>
+              {table.name}
+            </button>
+          ))}
+        </div>
+        <Button variant="ghost" onClick={() => void printAllTableQr(pos.tables, pos.cafe?.name ?? 'After Dunes')}>Print all QR codes</Button>
+      </section>
+
+      <section className="panel">
+        <h2>This device</h2>
+        <p className="fine">
+          Connection: {pos.conn === 'ONLINE' ? 'Online' : pos.conn === 'OFFLINE' ? 'Offline' : pos.conn === 'SYNCING' ? 'Syncing' : 'Sync error'}
+          {provider ? ` · OTP by ${provider}` : ''}
+        </p>
+        {prompt ? (
+          <Button onClick={() => void prompt.prompt()}>Install app</Button>
+        ) : (
+          <p className="fine">{ios ? 'On iPhone or iPad: Share, then Add to Home Screen.' : 'Use the browser menu to install After Dunes for a full-screen register.'}</p>
+        )}
+        <div className="row-actions">
+          <Button variant="ghost" onClick={() => void pos.signOut()}>Sign out</Button>
+          <Button variant="danger" onClick={() => setWipe(true)}>Clear local data</Button>
+        </div>
+      </section>
+
+      <section className="panel">
         <h2>Sync queue</h2>
-        {pos.queue.length === 0 ? <p>Nothing waiting.</p> : null}
+        {pos.queue.length === 0 ? <p className="fine">Nothing waiting.</p> : null}
         {pos.queue.map((op) => (
           <article key={op.id} className="admin-row">
-            <div>
+            <div className="name-row">
               <strong>{op.operation}</strong>
-              <span>{op.entityId}</span>
+              <span className="fine">{op.entityId}</span>
               {op.lastError ? <span className="field-error">{op.lastError}</span> : null}
             </div>
             <div className="row-actions">
@@ -80,6 +126,11 @@ export function SettingsPage() {
         ))}
         {pos.syncError ? <p className="field-error">{pos.syncError}</p> : null}
       </section>
+
+      <Drawer open={Boolean(qrTable)} title={qrTable ? `${qrTable.name} QR code` : 'QR code'} onClose={() => setQrTable(null)}>
+        {qrTable ? <TableQr table={qrTable} /> : null}
+      </Drawer>
+
       <Modal open={wipe} title="Clear this device?" onClose={() => setWipe(false)}>
         <p>Unsynced orders on this device will be removed. Orders already on the server stay there.</p>
         <div className="row-actions">
@@ -98,5 +149,25 @@ export function SettingsPage() {
         </div>
       </Modal>
     </section>
+  );
+}
+
+function TableQr({ table }: { table: TableInfo }) {
+  const [src, setSrc] = useState('');
+  const url = `${window.location.origin}/menu?table=${encodeURIComponent(table.qrCode)}`;
+  useEffect(() => {
+    void QRCode.toDataURL(url, { width: 320, margin: 1, color: { dark: '#2c2218', light: '#fbf6ee' } }).then(setSrc);
+  }, [url]);
+  return (
+    <div className="stack">
+      {src ? <img className="qr" src={src} alt={`QR code for ${table.name}`} /> : <p className="fine">Drawing the code…</p>}
+      <p className="fine">{url}</p>
+      <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(url).then(() => pushToast('Link copied'))}>
+        Copy customer link
+      </Button>
+      <Button variant="ghost" onClick={() => window.open(`/qr/${table.qrCode}`, '_blank')}>
+        Open printable sheet
+      </Button>
+    </div>
   );
 }

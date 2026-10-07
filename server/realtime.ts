@@ -14,8 +14,15 @@ export type MenuEventItem = {
   imageUrl: string | null;
   isVeg: boolean;
   isAvailable: boolean;
+  isFavorite: boolean;
+  shortcutNum: string | null;
+  shortcutAlpha: string | null;
   sortOrder: number;
   addonGroupIds: string[];
+  menuLead: string;
+  menuSubtitle: string;
+  kcalLabel: string;
+  ingredients: string[];
 };
 
 export type AddonEvent = {

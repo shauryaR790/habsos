@@ -47,3 +47,26 @@ export const MENU: Dish[] = [
   plate('item_spaghetti', 'Spaghetti Aglio e Olio', 230, 'Spaghetti with garlic, olive oil, and chilli. No cream. The pasta water emulsifies the oil so it coats every strand, and the garlic is cooked sweet, not burnt. Chilli sits on the finish. A hot plate, glossy, and lighter than the pesto.', 'cat_mains', '/items/cut/spaghetti.png'),
   plate('item_paneer', 'Marinated Grill Cottage Cheese', 265, 'Cubes of paneer sat in a marinade, then cooked on the grill until the edges colour and the centre stays soft. Not a curry and not a fried nugget. Served hot, with the spice on the surface of the cheese. A full plate, eaten with a fork.', 'cat_mains', '/items/cut/paneer.png'),
 ];
+
+export const ITEM_POS: Record<string, { num: string; alpha: string; favorite: boolean }> = {
+  item_moroccan: { num: '1', alpha: 'MAS', favorite: true },
+  item_mint_latte: { num: '2', alpha: 'ML', favorite: true },
+  item_espresso: { num: '3', alpha: 'CE', favorite: true },
+  item_cappuccino: { num: '4', alpha: 'CAP', favorite: true },
+  item_mocha: { num: '5', alpha: 'CM', favorite: false },
+  item_cold_brew: { num: '6', alpha: 'CB', favorite: false },
+  item_iced_americano: { num: '7', alpha: 'IA', favorite: false },
+  item_saigon: { num: '8', alpha: 'SCB', favorite: false },
+  item_sparkling: { num: '9', alpha: 'SE', favorite: false },
+  item_red_john: { num: '10', alpha: 'RJ', favorite: false },
+  item_tonic: { num: '11', alpha: 'TG', favorite: false },
+  item_halloumi: { num: '12', alpha: 'SW', favorite: false },
+  item_avocado_toast: { num: '13', alpha: 'BP', favorite: false },
+  item_cheddar: { num: '14', alpha: 'CK', favorite: false },
+  item_veg_club: { num: '15', alpha: 'VCS', favorite: true },
+  item_croissant_sandwich: { num: '16', alpha: 'CR', favorite: false },
+  item_harvest: { num: '17', alpha: 'GHB', favorite: true },
+  item_penne: { num: '18', alpha: 'PCP', favorite: true },
+  item_spaghetti: { num: '19', alpha: 'SAO', favorite: false },
+  item_paneer: { num: '20', alpha: 'MGC', favorite: true },
+};

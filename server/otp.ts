@@ -87,7 +87,47 @@ class SmsOtpProvider implements OtpProvider {
   }
 }
 
+class Fast2SmsOtpProvider implements OtpProvider {
+  readonly name = 'fast2sms';
+
+  async sendOtp(input: { mobile: string; code: string }) {
+    if (!env.fast2smsApiKey) throw new Error('FAST2SMS_API_KEY is not configured');
+    const body = new URLSearchParams({
+      route: 'q',
+      message: `Your After Dunes verification code is ${input.code}`,
+      language: 'english',
+      flash: '0',
+      numbers: input.mobile,
+    });
+    const response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+      method: 'POST',
+      headers: {
+        authorization: env.fast2smsApiKey,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+    const json = (await response.json()) as { return?: boolean; request_id?: string; message?: string | string[] };
+    const detail = Array.isArray(json.message) ? json.message.join(' ') : json.message;
+    if (!response.ok || json.return === false) {
+      throw new Error(detail?.trim() || 'SMS provider rejected the message');
+    }
+    return { providerRef: json.request_id ?? 'fast2sms' };
+  }
+
+  async verifyOtp(input: { challengeId: string; code: string; codeHash: string }) {
+    const actual = hashCode(input.challengeId, input.code);
+    return hashesMatch(input.codeHash, actual) ? 'VERIFIED' : 'FAILED';
+  }
+}
+
 export function createOtpProvider(): OtpProvider {
+  if (!isProduction() && env.otpDevExpose) {
+    return new MockOtpProvider();
+  }
+  if (env.otpProvider === 'fast2sms' || (env.fast2smsApiKey && env.otpProvider !== 'sms' && env.otpProvider !== 'mock')) {
+    return new Fast2SmsOtpProvider();
+  }
   if (env.otpProvider === 'sms') return new SmsOtpProvider();
   if (env.otpProvider !== 'mock' && isProduction()) {
     throw new Error(`Unknown OTP provider: ${env.otpProvider}`);

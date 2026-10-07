@@ -8,13 +8,23 @@ import { EmptyState } from '../../components/EmptyState';
 import { LoadingState } from '../../components/LoadingState';
 import { PaymentBadge } from '../../components/PaymentBadge';
 import { StatusBadge } from '../../components/StatusBadge';
+import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
+import { pushToast } from '../../components/Toast';
 
 export function OrderPage() {
   const { id = '' } = useParams();
   const [order, setOrder] = useState<PublicOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [razorpayKeyId, setRazorpayKeyId] = useState('');
+  const [paying, setPaying] = useState(false);
   useTitle(order ? `Order #${order.orderNumber}` : 'Order');
+
+  useEffect(() => {
+    void api<{ razorpayKeyId: string }>('/api/payments/config')
+      .then((config) => setRazorpayKeyId(config.razorpayKeyId || ''))
+      .catch(() => undefined);
+  }, []);
 
   async function load() {
     try {
@@ -106,9 +116,32 @@ export function OrderPage() {
         </section>
         {error ? <p className="field-error">{error}</p> : null}
       </main>
-      <Link className="pay-bar" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>
-        <span>Back to menu</span>
-      </Link>
+      {order.paymentStatus === 'UNPAID' && razorpayKeyId && order.status !== 'OTP_PENDING' && order.status !== 'CANCELLED' ? (
+        <button
+          type="button"
+          className="pay-bar"
+          disabled={paying}
+          onClick={() => {
+            setPaying(true);
+            void collectRazorpayPayment({
+              orderId: order.id,
+              public: true,
+              customerName: order.customerName,
+            }).then(() => {
+              pushToast('Payment received');
+              return load();
+            }).catch((err) => pushToast(err instanceof Error ? err.message : 'Payment failed', 'err'))
+              .finally(() => setPaying(false));
+          }}
+        >
+          <span>{paying ? 'Opening checkout…' : 'Pay bill online'}</span>
+          <span>{formatINR(order.total)}</span>
+        </button>
+      ) : (
+        <Link className="pay-bar" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>
+          <span>Back to menu</span>
+        </Link>
+      )}
     </div>
   );
 }

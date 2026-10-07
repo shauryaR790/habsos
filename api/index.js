@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS tables (
   name TEXT NOT NULL,
   qr_code TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
+  area TEXT NOT NULL DEFAULT 'Ground Floor',
   updated_at TEXT NOT NULL
 );
 
@@ -152,6 +153,9 @@ CREATE TABLE IF NOT EXISTS menu_items (
   image_url TEXT,
   is_veg INTEGER NOT NULL,
   is_available INTEGER NOT NULL,
+  is_favorite INTEGER NOT NULL DEFAULT 0,
+  shortcut_num TEXT,
+  shortcut_alpha TEXT,
   sort_order INTEGER NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -279,12 +283,39 @@ CREATE TABLE IF NOT EXISTS order_counters (
   next_number INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reservations (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  table_id TEXT NOT NULL REFERENCES tables(id),
+  customer_name TEXT NOT NULL,
+  mobile TEXT NOT NULL DEFAULT '',
+  covers INTEGER NOT NULL,
+  starts_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
 CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_otp_order ON otp_challenges(order_id, created_at);
 `);
+  migrate(database);
   return database;
+}
+function tableColumns(database, table) {
+  return database.prepare(`PRAGMA table_info(${table})`).all().map((col) => col.name);
+}
+function addColumn(database, table, name, definition) {
+  if (!tableColumns(database, table).includes(name)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+function migrate(database) {
+  addColumn(database, "tables", "area", "TEXT NOT NULL DEFAULT 'Ground Floor'");
+  addColumn(database, "menu_items", "is_favorite", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(database, "menu_items", "shortcut_num", "TEXT");
+  addColumn(database, "menu_items", "shortcut_alpha", "TEXT");
 }
 var current = null;
 function live() {
@@ -403,8 +434,8 @@ var OPEN_STATUSES = ["CONFIRMED", "ACCEPTED", "PREPARING", "READY", "SERVED"];
 var TRANSITIONS = {
   DRAFT: ["OTP_PENDING", "CANCELLED"],
   OTP_PENDING: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["READY", "CANCELLED"],
-  ACCEPTED: ["READY", "CANCELLED"],
+  CONFIRMED: ["READY", "SERVED", "CANCELLED"],
+  ACCEPTED: ["READY", "SERVED", "CANCELLED"],
   PREPARING: ["READY", "CANCELLED"],
   READY: ["SERVED", "CANCELLED"],
   SERVED: ["COMPLETED", "CANCELLED"],
@@ -413,6 +444,27 @@ var TRANSITIONS = {
 };
 function canTransition(from, to) {
   return TRANSITIONS[from].includes(to);
+}
+function orderFlag(notes, flag) {
+  return notes.split(/\n/).some((line) => line.trim() === flag);
+}
+function paidTotal(order) {
+  return order.payments.filter((payment) => payment.status === "PAID").reduce((sum, payment) => sum + payment.amount, 0);
+}
+function dueTotal(order) {
+  return Math.max(0, order.total - paidTotal(order));
+}
+function splitAmounts(total, parts) {
+  const count = Math.round(parts);
+  if (!Number.isInteger(count) || count < 2 || count > 8) {
+    throw new Error("Split into 2\u20138 bills.");
+  }
+  if (!Number.isInteger(total) || total < 1) {
+    throw new Error("Nothing to split.");
+  }
+  const base = Math.floor(total / count);
+  const extra = total - base * count;
+  return Array.from({ length: count }, (_, index) => base + (index < extra ? 1 : 0));
 }
 function statusMessage(status) {
   switch (status) {
@@ -436,6 +488,12 @@ function statusMessage(status) {
       return status;
   }
 }
+function normalizeShortcut(value) {
+  return value.trim().toUpperCase().replace(/[\s./_-]+/g, "");
+}
+var LINE_QTY_MIN = 1;
+var LINE_QTY_MAX = 20;
+var LINE_NOTE_MAX = 180;
 var PriceError = class extends Error {
   constructor(message) {
     super(message);
@@ -455,8 +513,8 @@ function priceCart(input) {
   const groupById = new Map(input.groups.map((group) => [group.id, group]));
   const lines = [];
   for (const line of input.lines) {
-    if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 20) {
-      throw new PriceError("Quantity must be between 1 and 20.");
+    if (!Number.isInteger(line.quantity) || line.quantity < LINE_QTY_MIN || line.quantity > LINE_QTY_MAX) {
+      throw new PriceError(`Quantity must be between ${LINE_QTY_MIN} and ${LINE_QTY_MAX}.`);
     }
     const item = itemById.get(line.menuItemId);
     if (!item) throw new PriceError("An item in the cart is no longer on the menu.");
@@ -484,7 +542,7 @@ function priceCart(input) {
       }
     }
     const addonSum = chosen.reduce((sum, addon) => sum + addon.price, 0);
-    const notes = (line.notes ?? "").trim().slice(0, 180);
+    const notes = (line.notes ?? "").trim().slice(0, LINE_NOTE_MAX);
     lines.push({
       menuItemId: item.id,
       name: item.name,
@@ -504,19 +562,202 @@ function normalizeMobile(input) {
   if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
   return /^[6-9]\d{9}$/.test(digits) ? digits : null;
 }
-function startOfZonedDay(timeZone, now = /* @__PURE__ */ new Date()) {
+function zonedOffsetMs(date, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
+    hourCycle: "h23",
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(now);
-  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  const utcGuess = /* @__PURE__ */ new Date(`${year}-${month}-${day}T00:00:00.000Z`);
-  const zoned = new Date(utcGuess.toLocaleString("en-US", { timeZone }));
-  return new Date(utcGuess.getTime() + (utcGuess.getTime() - zoned.getTime()));
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(date);
+  const read = (type) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"), read("second"));
+  return asUtc - date.getTime();
+}
+function noteValue(notes, key) {
+  const prefix = `${key}:`;
+  for (const line of notes.split(/\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  }
+  return "";
+}
+function orderChannel(order) {
+  const mode = noteValue(order.notes, "MODE").toUpperCase();
+  if (mode === "DELIVERY") return "delivery";
+  if (mode === "PICKUP") return "pickup";
+  if (mode === "DINE") return "dine";
+  return order.tableId ? "dine" : "pickup";
+}
+function formatZonedYmd(timeZone, date = /* @__PURE__ */ new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+function parseYmd(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Use YYYY-MM-DD dates.");
+  const [year, month, day] = value.split("-").map(Number);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
+    throw new Error("Invalid date.");
+  }
+  return value;
+}
+function shiftYmd(ymd, days) {
+  const [year, month, day] = parseYmd(ymd).split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return next.toISOString().slice(0, 10);
+}
+function zonedDayStart(timeZone, ymd) {
+  const [year, month, day] = parseYmd(ymd).split("-").map(Number);
+  const wall = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let utc = wall;
+  for (let i = 0; i < 3; i += 1) {
+    utc = wall - zonedOffsetMs(new Date(utc), timeZone);
+  }
+  return new Date(utc);
+}
+function zonedHour(iso, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date(iso));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  return Number.isFinite(hour) ? hour : 0;
+}
+function isSplitCancel(notes) {
+  return notes.split(/\n/).some((line) => {
+    const trimmed = line.trim();
+    return trimmed === "SPLIT" || trimmed.startsWith("SPLIT:");
+  });
+}
+function bumpNamed(map, name, qty, amount) {
+  const current2 = map.get(name) ?? { name, qty: 0, amount: 0 };
+  current2.qty += qty;
+  current2.amount += amount;
+  map.set(name, current2);
+}
+function sortNamed(map) {
+  return [...map.values()].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+}
+function buildSalesReport(input) {
+  const byMethod = { CASH: 0, UPI: 0, CARD: 0, OTHER: 0 };
+  const byChannel = {
+    dine: { bills: 0, amount: 0 },
+    pickup: { bills: 0, amount: 0 },
+    delivery: { bills: 0, amount: 0 }
+  };
+  const bySource = {
+    POS: { bills: 0, amount: 0 },
+    QR: { bills: 0, amount: 0 }
+  };
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, bills: 0, amount: 0 }));
+  const items = /* @__PURE__ */ new Map();
+  const categories = /* @__PURE__ */ new Map();
+  const tickets = [];
+  let bills = 0;
+  let cancelled = 0;
+  let complimentary = 0;
+  let gross = 0;
+  let discount = 0;
+  let tax = 0;
+  let net = 0;
+  let due = 0;
+  let ncAmount = 0;
+  for (const order of input.orders) {
+    if (order.status === "DRAFT" || order.status === "OTP_PENDING") continue;
+    const splitOff = order.status === "CANCELLED" && isSplitCancel(order.notes);
+    if (splitOff) continue;
+    const cancelledBill = order.status === "CANCELLED";
+    const complimentaryBill = orderFlag(order.notes, "COMPLIMENTARY");
+    const channel = orderChannel(order);
+    const ticket = {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      tableName: order.tableName,
+      customerName: order.customerName,
+      channel,
+      source: order.source,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      total: order.total,
+      due: dueTotal(order),
+      createdAt: order.createdAt,
+      complimentary: complimentaryBill,
+      cancelled: cancelledBill,
+      items: order.items.map((item) => ({ name: item.nameSnapshot, qty: item.quantity, amount: item.total }))
+    };
+    tickets.push(ticket);
+    if (cancelledBill) {
+      cancelled += 1;
+      continue;
+    }
+    bills += 1;
+    byChannel[channel].bills += 1;
+    bySource[order.source].bills += 1;
+    const hour = hours[zonedHour(order.createdAt, input.timeZone)];
+    if (hour) hour.bills += 1;
+    for (const item of order.items) {
+      bumpNamed(items, item.nameSnapshot, item.quantity, item.total);
+      bumpNamed(categories, input.categoryName(item.menuItemId), item.quantity, item.total);
+    }
+    if (complimentaryBill) {
+      complimentary += 1;
+      ncAmount += order.total;
+      continue;
+    }
+    gross += order.subtotal;
+    discount += order.discount;
+    tax += order.tax;
+    net += order.total;
+    due += dueTotal(order);
+    byChannel[channel].amount += order.total;
+    bySource[order.source].amount += order.total;
+    if (hour) hour.amount += order.total;
+  }
+  const payRows = input.payments ?? input.orders.flatMap((order) => order.payments.map((payment) => ({
+    method: payment.method,
+    amount: payment.amount,
+    status: payment.status,
+    createdAt: payment.createdAt,
+    complimentary: orderFlag(order.notes, "COMPLIMENTARY")
+  })));
+  let collected = 0;
+  for (const payment of payRows) {
+    if (payment.status !== "PAID") continue;
+    if (payment.createdAt < input.from || payment.createdAt >= input.to) continue;
+    if (payment.complimentary) continue;
+    if (!PAYMENT_METHODS.includes(payment.method)) continue;
+    byMethod[payment.method] += payment.amount;
+    collected += payment.amount;
+  }
+  tickets.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    from: input.from,
+    to: input.to,
+    fromYmd: input.fromYmd,
+    toYmd: input.toYmd,
+    bills,
+    cancelled,
+    complimentary,
+    gross,
+    discount,
+    tax,
+    net,
+    averageTicket: bills - complimentary > 0 ? Math.round(net / (bills - complimentary)) : 0,
+    due,
+    collected,
+    ncAmount,
+    byMethod,
+    byChannel,
+    bySource,
+    hours,
+    items: sortNamed(items),
+    categories: sortNamed(categories),
+    tickets
+  };
 }
 function toPublicOrder(order) {
   return {
@@ -565,13 +806,27 @@ var staffOrderSchema = import_zod.z.object({
   customerName: import_zod.z.string().trim().min(1).max(80),
   customerMobile: import_zod.z.string().trim().max(20).optional().default(""),
   items: import_zod.z.array(cartLineSchema).min(1).max(30),
-  clientKey: import_zod.z.string().uuid().optional()
+  notes: import_zod.z.string().max(400).optional().default(""),
+  discount: import_zod.z.number().int().min(0).max(1e5).optional().default(0),
+  clientKey: import_zod.z.string().uuid().optional(),
+  allowOpenTable: import_zod.z.boolean().optional()
+});
+var staffOrderPatchSchema = import_zod.z.object({
+  customerName: import_zod.z.string().trim().min(1).max(80).optional(),
+  customerMobile: import_zod.z.string().trim().max(20).optional(),
+  items: import_zod.z.array(cartLineSchema).min(1).max(30),
+  notes: import_zod.z.string().max(400).optional(),
+  discount: import_zod.z.number().int().min(0).max(1e5).optional()
 });
 var statusSchema = import_zod.z.object({
   status: import_zod.z.enum(ORDER_STATUSES)
 });
 var paymentSchema = import_zod.z.object({
-  method: import_zod.z.enum(PAYMENT_METHODS)
+  method: import_zod.z.enum(PAYMENT_METHODS),
+  amount: import_zod.z.number().int().min(1).max(1e5).optional()
+});
+var splitSchema = import_zod.z.object({
+  parts: import_zod.z.number().int().min(2).max(8)
 });
 var menuItemPatchSchema = import_zod.z.object({
   name: import_zod.z.string().trim().min(1).max(80),
@@ -579,7 +834,10 @@ var menuItemPatchSchema = import_zod.z.object({
   price: import_zod.z.number().int().min(0).max(1e5),
   isAvailable: import_zod.z.boolean(),
   imageUrl: import_zod.z.string().trim().max(500).nullable().optional(),
-  isVeg: import_zod.z.boolean().optional()
+  isVeg: import_zod.z.boolean().optional(),
+  isFavorite: import_zod.z.boolean().optional(),
+  shortcutNum: import_zod.z.string().trim().max(8).nullable().optional(),
+  shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional()
 });
 var addonPatchSchema = import_zod.z.object({
   name: import_zod.z.string().trim().min(1).max(80),
@@ -598,9 +856,27 @@ var moveSchema = import_zod.z.object({
 var tablePatchSchema = import_zod.z.object({
   status: import_zod.z.enum(["AVAILABLE", "OCCUPIED"])
 });
+var tableCreateSchema = import_zod.z.object({
+  name: import_zod.z.string().trim().min(1).max(40),
+  area: import_zod.z.string().trim().min(1).max(40).optional()
+});
+var orderTableSchema = import_zod.z.object({
+  tableId: import_zod.z.string().trim().min(1).max(80)
+});
 var settingsPatchSchema = import_zod.z.object({
   name: import_zod.z.string().trim().min(1).max(80).optional(),
   taxBps: import_zod.z.number().int().min(0).max(2800).optional()
+});
+var customerCreateSchema = import_zod.z.object({
+  name: import_zod.z.string().trim().min(1).max(80),
+  mobile: import_zod.z.string().trim().min(8).max(20)
+});
+var reservationCreateSchema = import_zod.z.object({
+  tableId: import_zod.z.string().trim().min(1).max(80),
+  customerName: import_zod.z.string().trim().min(1).max(80),
+  customerMobile: import_zod.z.string().trim().max(20).optional().default(""),
+  covers: import_zod.z.number().int().min(1).max(20),
+  startsAt: import_zod.z.string().trim().max(40).optional()
 });
 var syncOpSchema = import_zod.z.object({
   id: import_zod.z.string().min(1).max(80),
@@ -922,7 +1198,7 @@ function loadCatalog() {
     )
   }));
   const links = all("SELECT menu_item_id, addon_group_id FROM menu_item_addon_groups");
-  const items = all("SELECT id, category_id, name, description, price, image_url, is_veg, is_available, sort_order FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name", [CAFE_ID]).map(
+  const items = all("SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name", [CAFE_ID]).map(
     (row) => ({
       id: row.id,
       categoryId: row.category_id,
@@ -932,6 +1208,9 @@ function loadCatalog() {
       imageUrl: row.image_url,
       isVeg: row.is_veg === 1,
       isAvailable: row.is_available === 1,
+      isFavorite: row.is_favorite === 1,
+      shortcutNum: row.shortcut_num,
+      shortcutAlpha: row.shortcut_alpha,
       sortOrder: row.sort_order,
       addonGroupIds: links.filter((link) => link.menu_item_id === row.id).map((link) => link.addon_group_id)
     })
@@ -1017,7 +1296,7 @@ function insertPricedOrder(input) {
     `INSERT INTO orders (
       id, order_number, cafe_id, table_id, table_name, customer_id, customer_name, customer_mobile,
       status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       orderNumber,
@@ -1032,26 +1311,14 @@ function insertPricedOrder(input) {
       input.quote.discount,
       input.quote.total,
       input.source,
+      input.notes ?? "",
       input.clientKey,
       now,
       now,
       now
     ]
   );
-  for (const line of input.quote.lines) {
-    const itemId = (0, import_node_crypto4.randomUUID)();
-    run(
-      `INSERT INTO order_items (id, order_id, menu_item_id, name_snapshot, quantity, unit_price, total, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [itemId, input.id, line.menuItemId, line.name, line.quantity, line.unitPrice, line.total, line.notes]
-    );
-    for (const addon of line.addons) {
-      run(
-        `INSERT INTO order_item_addons (id, order_item_id, addon_id, name_snapshot, price_snapshot) VALUES (?, ?, ?, ?, ?)`,
-        [(0, import_node_crypto4.randomUUID)(), itemId, addon.addonId, addon.name, addon.price]
-      );
-    }
-  }
+  writeQuoteLines(input.id, input.quote);
   if (input.eventMessage) {
     run(
       `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
@@ -1060,6 +1327,55 @@ function insertPricedOrder(input) {
   }
   if (OPEN_STATUSES.includes(input.status)) refreshTable(input.tableId);
   return getOrder(input.id);
+}
+function writeQuoteLines(orderId, quote) {
+  for (const line of quote.lines) {
+    const itemId = (0, import_node_crypto4.randomUUID)();
+    run(
+      `INSERT INTO order_items (id, order_id, menu_item_id, name_snapshot, quantity, unit_price, total, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [itemId, orderId, line.menuItemId, line.name, line.quantity, line.unitPrice, line.total, line.notes]
+    );
+    for (const addon of line.addons) {
+      run(
+        `INSERT INTO order_item_addons (id, order_item_id, addon_id, name_snapshot, price_snapshot) VALUES (?, ?, ?, ?, ?)`,
+        [(0, import_node_crypto4.randomUUID)(), itemId, addon.addonId, addon.name, addon.price]
+      );
+    }
+  }
+}
+function replaceStaffOrderItems(orderId, input) {
+  const order = tx(() => {
+    const current2 = getOrder(orderId);
+    if (!current2) throw new AppError(404, "NOT_FOUND", "Order not found.");
+    if (current2.paymentStatus === "PAID" || current2.status === "COMPLETED" || current2.status === "CANCELLED" || current2.status === "OTP_PENDING") {
+      throw new AppError(409, "STATE", "This order can no longer be edited.");
+    }
+    const mobile = input.customerMobile?.trim() ? normalizeMobile(input.customerMobile) : current2.customerMobile;
+    if (input.customerMobile?.trim() && !mobile) throw new AppError(400, "MOBILE", "Enter a valid 10-digit mobile number.");
+    const name = input.customerName?.trim() ? cleanName(input.customerName) : current2.customerName;
+    const quote = quoteOrThrow(input.items, input.discount ?? current2.discount);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    run(`DELETE FROM order_item_addons WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)`, [orderId]);
+    run("DELETE FROM order_items WHERE order_id = ?", [orderId]);
+    writeQuoteLines(orderId, quote);
+    run(
+      `UPDATE orders SET customer_name = ?, customer_mobile = ?, subtotal = ?, tax = ?, discount = ?, total = ?, notes = ?, updated_at = ?, synced_at = ? WHERE id = ?`,
+      [name, mobile || "", quote.subtotal, quote.tax, quote.discount, quote.total, input.notes ?? current2.notes, now, now, orderId]
+    );
+    run(
+      `INSERT INTO order_events (id, order_id, type, message, created_at, actor) VALUES (?, ?, 'items', 'Items updated', ?, 'staff')`,
+      [(0, import_node_crypto4.randomUUID)(), orderId, now]
+    );
+    if (mobile) {
+      const customerId = upsertCustomer(name, mobile, now);
+      run("UPDATE orders SET customer_id = ? WHERE id = ?", [customerId, orderId]);
+    }
+    refreshTable(current2.tableId);
+    return getOrder(orderId);
+  });
+  notify(order);
+  return order;
 }
 function takeNumber() {
   const row = get("SELECT next_number FROM order_counters WHERE cafe_id = ?", [CAFE_ID]);
@@ -1073,7 +1389,16 @@ function refreshTable(tableId) {
     `SELECT COUNT(*) AS n FROM orders WHERE table_id = ? AND status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED')`,
     [tableId]
   );
-  run("UPDATE tables SET status = ?, updated_at = ? WHERE id = ?", [(open?.n ?? 0) > 0 ? "OCCUPIED" : "AVAILABLE", (/* @__PURE__ */ new Date()).toISOString(), tableId]);
+  if ((open?.n ?? 0) > 0) {
+    run("UPDATE tables SET status = ?, updated_at = ? WHERE id = ?", ["OCCUPIED", (/* @__PURE__ */ new Date()).toISOString(), tableId]);
+    return;
+  }
+  const latest = get(
+    `SELECT status, payment_status FROM orders WHERE table_id = ? ORDER BY updated_at DESC LIMIT 1`,
+    [tableId]
+  );
+  const paid = latest?.status === "COMPLETED" && latest.payment_status === "PAID";
+  run("UPDATE tables SET status = ?, updated_at = ? WHERE id = ?", [paid ? "OCCUPIED" : "AVAILABLE", (/* @__PURE__ */ new Date()).toISOString(), tableId]);
 }
 function findTable(tableId, tableCode) {
   if (tableId) {
@@ -1096,6 +1421,25 @@ function upsertCustomer(name, mobile, when) {
   }
   run("UPDATE customers SET name = ?, order_count = order_count + 1, last_order_at = ? WHERE id = ?", [name, when, existing.id]);
   return existing.id;
+}
+function seatHeldReservation(tableId) {
+  if (!tableId) return;
+  run(`UPDATE reservations SET status = 'SEATED' WHERE cafe_id = ? AND table_id = ? AND status = 'HELD'`, [CAFE_ID, tableId]);
+}
+function heldReservation(tableId) {
+  const row = get(
+    `SELECT id, table_id, customer_name, mobile, covers, starts_at FROM reservations WHERE cafe_id = ? AND table_id = ? AND status = 'HELD'`,
+    [CAFE_ID, tableId]
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    tableId: row.table_id,
+    customerName: row.customer_name,
+    mobile: row.mobile,
+    covers: row.covers,
+    startsAt: row.starts_at
+  };
 }
 function assertStillAvailable(order) {
   for (const item of order.items) {
@@ -1196,6 +1540,7 @@ function placeGuestOrder(input) {
       eventMessage: statusMessage("CONFIRMED")
     });
     run(`UPDATE orders SET customer_id = ? WHERE id = ?`, [customerId, created.id]);
+    seatHeldReservation(table.id);
     return getOrder(created.id);
   });
   notify(order);
@@ -1293,6 +1638,7 @@ async function verifyCheckout(orderId, code) {
       [(0, import_node_crypto4.randomUUID)(), orderId, statusMessage("CONFIRMED"), now]
     );
     refreshTable(current2.tableId);
+    seatHeldReservation(current2.tableId);
     return getOrder(orderId);
   });
   notify(order);
@@ -1323,7 +1669,14 @@ function createStaffOrder(input) {
   if ((input.tableId || input.tableCode) && !table) throw new AppError(404, "TABLE", "Table not found.");
   const id = input.id ?? (0, import_node_crypto4.randomUUID)();
   const order = tx(() => {
-    const quote = quoteOrThrow(input.items);
+    if (table && !input.allowOpenTable) {
+      const busy = get(
+        `SELECT COUNT(*) AS n FROM orders WHERE table_id = ? AND status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED')`,
+        [table.id]
+      );
+      if ((busy?.n ?? 0) > 0) throw new AppError(409, "TABLE_BUSY", "This table already has an open order.");
+    }
+    const quote = quoteOrThrow(input.items, input.discount ?? 0);
     const created = insertPricedOrder({
       id,
       clientKey: key ?? id,
@@ -1335,12 +1688,14 @@ function createStaffOrder(input) {
       source: "POS",
       quote,
       actor: "staff",
-      eventMessage: statusMessage("CONFIRMED")
+      eventMessage: statusMessage("CONFIRMED"),
+      notes: input.notes ?? ""
     });
     if (mobile) {
       const customerId = upsertCustomer(name, mobile, created.createdAt);
       run("UPDATE orders SET customer_id = ? WHERE id = ?", [customerId, id]);
     }
+    if (table) seatHeldReservation(table.id);
     return getOrder(id);
   });
   notify(order);
@@ -1366,7 +1721,7 @@ function transitionOrder(orderId, to, actor = "staff") {
   notify(order);
   return order;
 }
-function markPaid(orderId, method) {
+function markPaid(orderId, method, amount) {
   const order = tx(() => {
     const current2 = getOrder(orderId);
     if (!current2) throw new AppError(404, "NOT_FOUND", "Order not found.");
@@ -1375,17 +1730,128 @@ function markPaid(orderId, method) {
     }
     if (!PAYMENT_METHODS.includes(method)) throw new AppError(400, "PAYMENT", "Unknown payment method.");
     if (current2.paymentStatus === "PAID") return current2;
+    const remaining = dueTotal(current2);
+    const take = amount ?? remaining;
+    if (!Number.isInteger(take) || take < 1) throw new AppError(400, "PAYMENT", "Enter an amount of at least \u20B91.");
+    if (take > remaining) throw new AppError(400, "PAYMENT", "Amount is more than the remainder.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    run("INSERT INTO payments (id, order_id, method, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", [(0, import_node_crypto4.randomUUID)(), orderId, method, current2.total, "PAID", now]);
-    run(`UPDATE orders SET payment_status = 'PAID', updated_at = ? WHERE id = ?`, [now, orderId]);
-    run(
-      `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'payment', 'Paid', ?, 'PAID', ?, 'staff')`,
-      [(0, import_node_crypto4.randomUUID)(), orderId, current2.paymentStatus, now]
-    );
+    run("INSERT INTO payments (id, order_id, method, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", [(0, import_node_crypto4.randomUUID)(), orderId, method, take, "PAID", now]);
+    const closed = take === remaining;
+    if (closed) {
+      run(`UPDATE orders SET payment_status = 'PAID', status = 'COMPLETED', updated_at = ? WHERE id = ?`, [now, orderId]);
+      run(
+        `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'payment', 'Paid', ?, 'PAID', ?, 'staff')`,
+        [(0, import_node_crypto4.randomUUID)(), orderId, current2.paymentStatus, now]
+      );
+      if (current2.status !== "COMPLETED") {
+        run(
+          `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, 'COMPLETED', ?, 'staff')`,
+          [(0, import_node_crypto4.randomUUID)(), orderId, statusMessage("COMPLETED"), current2.status, now]
+        );
+      }
+    } else {
+      run("UPDATE orders SET updated_at = ? WHERE id = ?", [now, orderId]);
+      run(
+        `INSERT INTO order_events (id, order_id, type, message, created_at, actor) VALUES (?, ?, 'payment', ?, ?, 'staff')`,
+        [(0, import_node_crypto4.randomUUID)(), orderId, `Part paid (${take})`, now]
+      );
+    }
+    refreshTable(current2.tableId);
     return getOrder(orderId);
   });
   notify(order);
   return order;
+}
+function splitStaffOrder(orderId, parts) {
+  const current2 = getOrder(orderId);
+  if (!current2) throw new AppError(404, "NOT_FOUND", "Order not found.");
+  let amounts;
+  try {
+    amounts = splitAmounts(current2.total, parts);
+  } catch (error) {
+    throw new AppError(400, "SPLIT", error instanceof Error ? error.message : "Cannot split this bill.");
+  }
+  const children = tx(() => {
+    const current3 = getOrder(orderId);
+    if (!current3) throw new AppError(404, "NOT_FOUND", "Order not found.");
+    if (current3.paymentStatus === "PAID" || current3.status === "CANCELLED" || current3.status === "OTP_PENDING" || current3.status === "DRAFT") {
+      throw new AppError(409, "SPLIT", "This order can no longer be split.");
+    }
+    if (dueTotal(current3) !== current3.total) {
+      throw new AppError(409, "SPLIT", "Split before taking part payment.");
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const created = [];
+    const subtotals = current3.subtotal < 1 ? amounts.map(() => 0) : splitAmounts(current3.subtotal, amounts.length);
+    const taxes = current3.tax < 1 ? amounts.map(() => 0) : splitAmounts(current3.tax, amounts.length);
+    const discounts = current3.discount < 1 ? amounts.map(() => 0) : splitAmounts(current3.discount, amounts.length);
+    for (let index = 0; index < amounts.length; index += 1) {
+      const id = (0, import_node_crypto4.randomUUID)();
+      const notes = [`SPLIT:${index + 1}/${amounts.length}`, `PARENT:${current3.id}`, current3.notes].filter(Boolean).join("\n").slice(0, 400);
+      run(
+        `INSERT INTO orders (
+          id, order_number, cafe_id, table_id, table_name, customer_id, customer_name, customer_mobile,
+          status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          takeNumber(),
+          CAFE_ID,
+          current3.tableId,
+          current3.tableName ?? "",
+          current3.customerId,
+          current3.customerName,
+          current3.customerMobile,
+          current3.status,
+          subtotals[index],
+          taxes[index],
+          discounts[index],
+          amounts[index],
+          current3.source,
+          notes,
+          id,
+          now,
+          now,
+          now
+        ]
+      );
+      for (const item of current3.items) {
+        const shares = item.total < 1 ? amounts.map(() => 0) : splitAmounts(item.total, amounts.length);
+        const itemId = (0, import_node_crypto4.randomUUID)();
+        run(
+          `INSERT INTO order_items (id, order_id, menu_item_id, name_snapshot, quantity, unit_price, total, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, id, item.menuItemId, item.nameSnapshot, item.quantity, item.unitPrice, shares[index], item.notes]
+        );
+        for (const addon of item.addons) {
+          run(
+            `INSERT INTO order_item_addons (id, order_item_id, addon_id, name_snapshot, price_snapshot) VALUES (?, ?, ?, ?, ?)`,
+            [(0, import_node_crypto4.randomUUID)(), itemId, addon.addonId, addon.nameSnapshot, addon.priceSnapshot]
+          );
+        }
+      }
+      run(
+        `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, NULL, ?, ?, 'staff')`,
+        [(0, import_node_crypto4.randomUUID)(), id, `Split bill ${index + 1}/${amounts.length}`, current3.status, now]
+      );
+      created.push(getOrder(id));
+    }
+    run(`UPDATE orders SET status = 'CANCELLED', notes = ?, updated_at = ? WHERE id = ?`, [
+      [`SPLIT`, current3.notes].filter(Boolean).join("\n").slice(0, 400),
+      now,
+      orderId
+    ]);
+    run(
+      `INSERT INTO order_events (id, order_id, type, message, from_status, to_status, created_at, actor) VALUES (?, ?, 'status', ?, ?, 'CANCELLED', ?, 'staff')`,
+      [(0, import_node_crypto4.randomUUID)(), orderId, `Split into ${amounts.length} bills`, current3.status, now]
+    );
+    refreshTable(current3.tableId);
+    return created;
+  });
+  for (const child of children) notify(child);
+  const parent = getOrder(orderId);
+  if (parent) notify(parent);
+  return children;
 }
 function itemEvent(item) {
   return {
@@ -1397,9 +1863,38 @@ function itemEvent(item) {
     imageUrl: item.imageUrl,
     isVeg: item.isVeg,
     isAvailable: item.isAvailable,
+    isFavorite: item.isFavorite,
+    shortcutNum: item.shortcutNum,
+    shortcutAlpha: item.shortcutAlpha,
     sortOrder: item.sortOrder,
     addonGroupIds: item.addonGroupIds
   };
+}
+function cleanNumericShortcut(value) {
+  const clean = normalizeShortcut(value ?? "");
+  if (!clean) return null;
+  if (!/^\d{1,4}$/.test(clean)) throw new AppError(400, "SHORTCUT", "Numeric shortcut must be 1\u20134 digits.");
+  return clean;
+}
+function cleanAlphaShortcut(value) {
+  const clean = normalizeShortcut(value ?? "");
+  if (!clean) return null;
+  if (!/^[A-Z]{1,8}$/.test(clean)) throw new AppError(400, "SHORTCUT", "Alphabetic shortcut must be 1\u20138 letters.");
+  return clean;
+}
+function assertShortcutFree(itemId, num, alpha) {
+  const codes = [num, alpha].filter((code) => Boolean(code));
+  if (!codes.length) return;
+  const rows = all(
+    "SELECT id, name, shortcut_num, shortcut_alpha FROM menu_items WHERE cafe_id = ? AND id != ?",
+    [CAFE_ID, itemId]
+  );
+  for (const row of rows) {
+    const taken = [row.shortcut_num, row.shortcut_alpha].filter(Boolean).map((code) => normalizeShortcut(code ?? ""));
+    for (const code of codes) {
+      if (taken.includes(code)) throw new AppError(400, "SHORTCUT", `Shortcut ${code} is already used on ${row.name}.`);
+    }
+  }
 }
 function updateMenuItem(id, patch) {
   const current2 = loadCatalog().items.find((item2) => item2.id === id);
@@ -1410,13 +1905,20 @@ function updateMenuItem(id, patch) {
     price: patch.price !== void 0 ? patch.price : current2.price,
     isAvailable: patch.isAvailable !== void 0 ? patch.isAvailable : current2.isAvailable,
     imageUrl: patch.imageUrl !== void 0 ? cleanImage(patch.imageUrl) : current2.imageUrl,
-    isVeg: patch.isVeg !== void 0 ? patch.isVeg : current2.isVeg
+    isVeg: patch.isVeg !== void 0 ? patch.isVeg : current2.isVeg,
+    isFavorite: patch.isFavorite !== void 0 ? patch.isFavorite : current2.isFavorite,
+    shortcutNum: patch.shortcutNum !== void 0 ? cleanNumericShortcut(patch.shortcutNum) : current2.shortcutNum,
+    shortcutAlpha: patch.shortcutAlpha !== void 0 ? cleanAlphaShortcut(patch.shortcutAlpha) : current2.shortcutAlpha
   };
   if (!Number.isInteger(next.price) || next.price < 0 || next.price > 1e5) throw new AppError(400, "PRICE", "Enter a valid price.");
+  if (next.shortcutNum && next.shortcutAlpha && next.shortcutNum === next.shortcutAlpha) {
+    throw new AppError(400, "SHORTCUT", "Numeric and alphabetic shortcuts on one item must differ.");
+  }
+  assertShortcutFree(id, next.shortcutNum, next.shortcutAlpha);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   run(
-    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, updated_at = ? WHERE id = ?`,
-    [next.name, next.description, next.price, next.isAvailable ? 1 : 0, next.imageUrl, next.isVeg ? 1 : 0, now, id]
+    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, updated_at = ? WHERE id = ?`,
+    [next.name, next.description, next.price, next.isAvailable ? 1 : 0, next.imageUrl, next.isVeg ? 1 : 0, next.isFavorite ? 1 : 0, next.shortcutNum, next.shortcutAlpha, now, id]
   );
   const item = loadCatalog().items.find((entry) => entry.id === id);
   publish({ type: "menu.updated", item: itemEvent(item) });
@@ -1473,6 +1975,48 @@ function updateAddon(id, patch) {
   publish({ type: "addon.updated", addon });
   return addon;
 }
+function createTable(input) {
+  const name = input.name.trim();
+  if (!name) throw new AppError(400, "TABLE", "Enter a table name.");
+  const area = input.area?.trim() || "Ground Floor";
+  const qr = name.replace(/\s+/g, "").toUpperCase();
+  const clash = get("SELECT id FROM tables WHERE cafe_id = ? AND (name = ? OR qr_code = ?)", [CAFE_ID, name, qr]);
+  if (clash) throw new AppError(409, "TABLE", "A table with that name already exists.");
+  const id = `table_${qr.toLowerCase()}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  run(
+    `INSERT INTO tables (id, cafe_id, name, qr_code, status, area, updated_at) VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?)`,
+    [id, CAFE_ID, name, qr, area, now]
+  );
+  publish({ type: "table.updated", tableId: id });
+  const created = listTables().find((entry) => entry.id === id);
+  if (!created) throw new AppError(500, "TABLE", "Could not create the table.");
+  return created;
+}
+function reassignOrderTable(orderId, tableId) {
+  const order = tx(() => {
+    const current2 = getOrder(orderId);
+    if (!current2) throw new AppError(404, "NOT_FOUND", "Order not found.");
+    if (!OPEN_STATUSES.includes(current2.status) || current2.paymentStatus === "PAID") {
+      throw new AppError(409, "ORDER", "Only an open unpaid order can move.");
+    }
+    const dest = findTable(tableId);
+    if (!dest) throw new AppError(404, "TABLE", "Table not found.");
+    if (current2.tableId === dest.id) return current2;
+    const busy = get(
+      `SELECT COUNT(*) AS n FROM orders WHERE table_id = ? AND id != ? AND status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED')`,
+      [dest.id, orderId]
+    );
+    if ((busy?.n ?? 0) > 0) throw new AppError(409, "TABLE_BUSY", "That table already has an open order.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    run("UPDATE orders SET table_id = ?, table_name = ?, updated_at = ? WHERE id = ?", [dest.id, dest.name, now, orderId]);
+    refreshTable(current2.tableId);
+    refreshTable(dest.id);
+    return getOrder(orderId);
+  });
+  notify(order);
+  return order;
+}
 function updateTable(id, status) {
   const table = get("SELECT id FROM tables WHERE id = ? AND cafe_id = ?", [id, CAFE_ID]);
   if (!table) throw new AppError(404, "NOT_FOUND", "Table not found.");
@@ -1496,25 +2040,49 @@ function updateSettings(patch) {
   return loadCatalog().cafe;
 }
 function listTables() {
-  const tables = all("SELECT id, name, qr_code, status FROM tables WHERE cafe_id = ? ORDER BY name", [CAFE_ID]);
+  const tables = all(
+    `SELECT id, name, qr_code, status, COALESCE(area, 'Ground Floor') AS area
+     FROM tables WHERE cafe_id = ?
+     ORDER BY CASE COALESCE(area, 'Ground Floor')
+       WHEN 'Ground Floor' THEN 1
+       WHEN 'Basement' THEN 2
+       WHEN 'Party Hall' THEN 3
+       ELSE 4
+     END, name`,
+    [CAFE_ID]
+  );
   return tables.map((table) => {
-    const open = get(
-      `${ORDER_SELECT} WHERE o.table_id = ? AND o.status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') ORDER BY o.created_at DESC LIMIT 1`,
+    const opens = all(
+      `${ORDER_SELECT} WHERE o.table_id = ? AND o.status IN ('CONFIRMED','ACCEPTED','PREPARING','READY','SERVED') ORDER BY o.updated_at DESC`,
       [table.id]
     );
+    const hydrated = opens.length ? hydrate(opens) : [];
+    const latest = hydrated[0] ?? null;
+    const due = hydrated.reduce((sum, order) => sum + dueTotal(order), 0);
+    const paidRows = latest ? [] : all(
+      `${ORDER_SELECT} WHERE o.table_id = ? AND o.status = 'COMPLETED' AND o.payment_status = 'PAID' ORDER BY o.updated_at DESC LIMIT 1`,
+      [table.id]
+    );
+    const paid = paidRows.length ? hydrate(paidRows)[0] ?? null : null;
+    const shown = latest ?? paid;
+    const hold = heldReservation(table.id);
     return {
       id: table.id,
       name: table.name,
       qrCode: table.qr_code,
-      status: open ? "OCCUPIED" : table.status,
-      openOrder: open ? {
-        id: open.id,
-        orderNumber: open.order_number,
-        customerName: open.customer_name,
-        total: open.total,
-        paymentStatus: open.payment_status,
-        status: open.status
-      } : null
+      status: shown ? "OCCUPIED" : table.status,
+      area: table.area || "Ground Floor",
+      openOrder: shown ? {
+        id: shown.id,
+        orderNumber: shown.orderNumber,
+        customerName: shown.customerName,
+        total: latest ? hydrated.reduce((sum, order) => sum + order.total, 0) : shown.total,
+        paymentStatus: shown.paymentStatus,
+        status: shown.status,
+        createdAt: shown.createdAt,
+        due: latest ? due : 0
+      } : null,
+      reservation: shown ? null : hold
     };
   });
 }
@@ -1530,41 +2098,137 @@ function listOrders() {
 }
 function listCustomers() {
   return all(
-    "SELECT id, name, mobile, order_count, last_order_at FROM customers WHERE cafe_id = ? ORDER BY last_order_at DESC",
+    `SELECT c.id, c.name, c.mobile, c.last_order_at,
+      (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.status NOT IN ('DRAFT','OTP_PENDING','CANCELLED')) AS order_count,
+      (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.customer_id = c.id AND o.status NOT IN ('DRAFT','OTP_PENDING','CANCELLED')) AS spent
+     FROM customers c WHERE c.cafe_id = ? ORDER BY c.last_order_at DESC`,
     [CAFE_ID]
   ).map((row) => ({
     id: row.id,
     name: row.name,
     mobile: row.mobile,
     orderCount: row.order_count,
+    spent: row.spent,
     lastOrderAt: row.last_order_at
   }));
 }
-function reportToday() {
-  const cafe = loadCatalog().cafe;
-  const start = startOfZonedDay(cafe.timezone).toISOString();
-  const rows = all(
-    `SELECT status, payment_status, total FROM orders WHERE cafe_id = ? AND created_at >= ? AND status NOT IN ('DRAFT','OTP_PENDING','CANCELLED')`,
-    [CAFE_ID, start]
-  );
-  const byStatus = {};
-  let paidTotal = 0;
-  let unpaidTotal = 0;
-  for (const row of rows) {
-    byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
-    if (row.payment_status === "PAID") paidTotal += row.total;
-    if (row.payment_status === "UNPAID") unpaidTotal += row.total;
+function createCustomer(name, mobile) {
+  const digits = normalizeMobile(mobile);
+  if (!digits) throw new AppError(400, "MOBILE", "Enter a valid 10-digit mobile number.");
+  const label = cleanName(name);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = get("SELECT id FROM customers WHERE cafe_id = ? AND mobile = ?", [CAFE_ID, digits]);
+  if (existing) {
+    run("UPDATE customers SET name = ? WHERE id = ?", [label, existing.id]);
+  } else {
+    run(
+      "INSERT INTO customers (id, cafe_id, name, mobile, order_count, last_order_at, created_at) VALUES (?, ?, ?, ?, 0, NULL, ?)",
+      [(0, import_node_crypto4.randomUUID)(), CAFE_ID, label, digits, now]
+    );
   }
-  const gross = rows.reduce((sum, row) => sum + row.total, 0);
-  return {
-    from: start,
-    ordersToday: rows.length,
-    paidTotal,
-    unpaidTotal,
-    gross,
-    averageTicket: rows.length ? Math.round(gross / rows.length) : 0,
-    byStatus
-  };
+  const row = listCustomers().find((customer) => customer.mobile === digits);
+  if (!row) throw new AppError(500, "CUSTOMER", "Could not save the customer.");
+  return row;
+}
+function listCustomerOrders(customerId) {
+  const rows = all(
+    `${ORDER_SELECT} WHERE o.cafe_id = ? AND o.customer_id = ? AND o.status != 'DRAFT' ORDER BY o.created_at DESC LIMIT 80`,
+    [CAFE_ID, customerId]
+  );
+  return hydrate(rows);
+}
+function createReservation(input) {
+  const table = get("SELECT id FROM tables WHERE cafe_id = ? AND id = ?", [CAFE_ID, input.tableId]);
+  if (!table) throw new AppError(404, "TABLE", "Table not found.");
+  const current2 = listTables().find((entry) => entry.id === input.tableId);
+  if (current2?.openOrder) throw new AppError(409, "TABLE_BUSY", "This table is occupied.");
+  if (heldReservation(input.tableId)) throw new AppError(409, "RESERVED", "This table is already reserved.");
+  let mobile = "";
+  if (input.customerMobile?.trim()) {
+    const digits = normalizeMobile(input.customerMobile);
+    if (!digits) throw new AppError(400, "MOBILE", "Enter a valid 10-digit mobile number.");
+    mobile = digits;
+  }
+  let startsAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (input.startsAt?.trim()) {
+    const parsed = new Date(input.startsAt);
+    if (Number.isNaN(parsed.getTime())) throw new AppError(400, "TIME", "Enter a valid reservation time.");
+    startsAt = parsed.toISOString();
+  }
+  const id = (0, import_node_crypto4.randomUUID)();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  run(
+    `INSERT INTO reservations (id, cafe_id, table_id, customer_name, mobile, covers, starts_at, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'HELD', ?)`,
+    [id, CAFE_ID, input.tableId, cleanName(input.customerName), mobile, input.covers, startsAt, now]
+  );
+  publish({ type: "table.updated", tableId: input.tableId });
+  return heldReservation(input.tableId);
+}
+function cancelReservation(id) {
+  const row = get("SELECT id, table_id, status FROM reservations WHERE id = ? AND cafe_id = ?", [id, CAFE_ID]);
+  if (!row) throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+  if (row.status !== "HELD") throw new AppError(409, "STATE", "That reservation is no longer held.");
+  run(`UPDATE reservations SET status = 'CANCELLED' WHERE id = ?`, [id]);
+  publish({ type: "table.updated", tableId: row.table_id });
+  return listTables().find((entry) => entry.id === row.table_id);
+}
+function listOrdersCreatedBetween(fromIso, toIso) {
+  const rows = all(
+    `${ORDER_SELECT} WHERE o.cafe_id = ? AND o.created_at >= ? AND o.created_at < ? AND o.status != 'DRAFT' ORDER BY o.created_at ASC`,
+    [CAFE_ID, fromIso, toIso]
+  );
+  return hydrate(rows);
+}
+function reportRange(fromYmd, toYmd) {
+  const catalog = loadCatalog();
+  const zone = catalog.cafe.timezone;
+  const today = formatZonedYmd(zone);
+  let startDay;
+  let endDay;
+  try {
+    startDay = parseYmd(fromYmd || today);
+    endDay = parseYmd(toYmd || fromYmd || today);
+  } catch (error) {
+    throw new AppError(400, "RANGE", error instanceof Error ? error.message : "Invalid date.");
+  }
+  if (endDay < startDay) throw new AppError(400, "RANGE", "End date must be on or after start date.");
+  const from = zonedDayStart(zone, startDay);
+  const to = zonedDayStart(zone, shiftYmd(endDay, 1));
+  const days = Math.round((to.getTime() - from.getTime()) / 864e5);
+  if (days > 62) throw new AppError(400, "RANGE", "Pick a range of 62 days or less.");
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+  const orders = listOrdersCreatedBetween(fromIso, toIso);
+  const payRows = all(
+    `SELECT p.method, p.amount, p.status, p.created_at, o.notes
+     FROM payments p JOIN orders o ON o.id = p.order_id
+     WHERE o.cafe_id = ? AND p.created_at >= ? AND p.created_at < ? AND p.status = 'PAID'`,
+    [CAFE_ID, fromIso, toIso]
+  );
+  const categoryByItem = new Map(catalog.items.map((item) => [
+    item.id,
+    catalog.categories.find((category) => category.id === item.categoryId)?.name ?? "Other"
+  ]));
+  return buildSalesReport({
+    orders,
+    payments: payRows.map((row) => ({
+      method: row.method,
+      amount: row.amount,
+      status: row.status,
+      createdAt: row.created_at,
+      complimentary: orderFlag(row.notes, "COMPLIMENTARY")
+    })),
+    categoryName: (menuItemId) => menuItemId ? categoryByItem.get(menuItemId) ?? "Other" : "Other",
+    timeZone: zone,
+    from: fromIso,
+    to: toIso,
+    fromYmd: startDay,
+    toYmd: endDay
+  });
+}
+function reportToday() {
+  return reportRange();
 }
 function snapshot() {
   const catalog = loadCatalog();
@@ -1603,19 +2267,32 @@ function applySyncBatch(operations) {
           customerName: String(payload.customerName || ""),
           customerMobile: String(payload.customerMobile || ""),
           items,
-          clientKey: String(payload.id || op.entityId)
+          clientKey: String(payload.id || op.entityId),
+          notes: String(payload.notes || ""),
+          discount: typeof payload.discount === "number" ? payload.discount : 0,
+          allowOpenTable: Boolean(payload.allowOpenTable)
         });
         results.push({ id: op.id, ok: true, order });
         continue;
       }
       if (op.operation === "UPDATE_ORDER" || op.operation === "MARK_PREPARING" || op.operation === "MARK_READY") {
+        let order;
+        if (op.operation === "UPDATE_ORDER" && Array.isArray(payload.items)) {
+          order = replaceStaffOrderItems(op.entityId, {
+            customerName: payload.customerName,
+            customerMobile: payload.customerMobile,
+            items: payload.items,
+            notes: payload.notes,
+            discount: typeof payload.discount === "number" ? payload.discount : void 0
+          });
+        }
         const status = op.operation === "MARK_PREPARING" ? "PREPARING" : op.operation === "MARK_READY" ? "READY" : payload.status;
-        const order = transitionOrder(op.entityId, status);
-        results.push({ id: op.id, ok: true, order });
+        if (status) order = transitionOrder(op.entityId, status);
+        results.push({ id: op.id, ok: true, order: order ?? getOrder(op.entityId) ?? void 0 });
         continue;
       }
       if (op.operation === "MARK_PAID") {
-        const order = markPaid(op.entityId, payload.method);
+        const order = markPaid(op.entityId, payload.method, typeof payload.amount === "number" ? payload.amount : void 0);
         results.push({ id: op.id, ok: true, order });
         continue;
       }
@@ -1626,7 +2303,10 @@ function applySyncBatch(operations) {
           price: payload.price,
           isAvailable: payload.isAvailable,
           imageUrl: payload.imageUrl,
-          isVeg: payload.isVeg
+          isVeg: payload.isVeg,
+          isFavorite: payload.isFavorite,
+          shortcutNum: payload.shortcutNum,
+          shortcutAlpha: payload.shortcutAlpha
         });
         results.push({ id: op.id, ok: true, item });
         continue;
@@ -1813,6 +2493,11 @@ app.post("/api/orders", requireAuth, wrap((req, res) => {
   const order = createStaffOrder(body);
   res.status(201).json({ order });
 }));
+app.patch("/api/orders/:id", requireAuth, wrap((req, res) => {
+  const body = staffOrderPatchSchema.parse(req.body);
+  const order = replaceStaffOrderItems(idOf(req.params.id), body);
+  res.json({ order });
+}));
 app.post("/api/orders/:id/status", requireAuth, wrap((req, res) => {
   const body = statusSchema.parse(req.body);
   const order = transitionOrder(idOf(req.params.id), body.status);
@@ -1820,8 +2505,13 @@ app.post("/api/orders/:id/status", requireAuth, wrap((req, res) => {
 }));
 app.post("/api/orders/:id/payments", requireAuth, wrap((req, res) => {
   const body = paymentSchema.parse(req.body);
-  const order = markPaid(idOf(req.params.id), body.method);
+  const order = markPaid(idOf(req.params.id), body.method, body.amount);
   res.json({ order });
+}));
+app.post("/api/orders/:id/split", requireAuth, wrap((req, res) => {
+  const body = splitSchema.parse(req.body);
+  const orders = splitStaffOrder(idOf(req.params.id), body.parts);
+  res.json({ orders });
 }));
 app.patch("/api/menu/items/:id", requireAuth, wrap((req, res) => {
   const body = menuItemPatchSchema.parse(req.body);
@@ -1851,13 +2541,40 @@ app.patch("/api/addons/:id", requireAuth, wrap((req, res) => {
 app.get("/api/tables", requireAuth, wrap((_req, res) => {
   res.json({ tables: listTables() });
 }));
+app.post("/api/tables", requireAuth, wrap((req, res) => {
+  const body = tableCreateSchema.parse(req.body);
+  res.status(201).json({ table: createTable(body) });
+}));
 app.patch("/api/tables/:id", requireAuth, wrap((req, res) => {
   const body = tablePatchSchema.parse(req.body);
   const table = updateTable(idOf(req.params.id), body.status);
   res.json({ table });
 }));
+app.patch("/api/orders/:id/table", requireAuth, wrap((req, res) => {
+  const body = orderTableSchema.parse(req.body);
+  res.json({ order: reassignOrderTable(idOf(req.params.id), body.tableId) });
+}));
 app.get("/api/customers", requireAuth, wrap((_req, res) => {
   res.json({ customers: listCustomers() });
+}));
+app.post("/api/customers", requireAuth, wrap((req, res) => {
+  const body = customerCreateSchema.parse(req.body);
+  res.status(201).json({ customer: createCustomer(body.name, body.mobile) });
+}));
+app.get("/api/customers/:id/orders", requireAuth, wrap((req, res) => {
+  res.json({ orders: listCustomerOrders(idOf(req.params.id)) });
+}));
+app.post("/api/reservations", requireAuth, wrap((req, res) => {
+  const body = reservationCreateSchema.parse(req.body);
+  res.status(201).json({ reservation: createReservation(body) });
+}));
+app.post("/api/reservations/:id/cancel", requireAuth, wrap((req, res) => {
+  res.json({ table: cancelReservation(idOf(req.params.id)) });
+}));
+app.get("/api/reports", requireAuth, wrap((req, res) => {
+  const from = typeof req.query.from === "string" ? req.query.from : void 0;
+  const to = typeof req.query.to === "string" ? req.query.to : void 0;
+  res.json(reportRange(from, to));
 }));
 app.get("/api/reports/today", requireAuth, wrap((_req, res) => {
   res.json(reportToday());
@@ -1951,6 +2668,28 @@ var MENU = [
   plate("item_spaghetti", "Spaghetti Aglio e Olio", 230, "Spaghetti with garlic, olive oil, and chilli. No cream. The pasta water emulsifies the oil so it coats every strand, and the garlic is cooked sweet, not burnt. Chilli sits on the finish. A hot plate, glossy, and lighter than the pesto.", "cat_mains", "/items/cut/spaghetti.png"),
   plate("item_paneer", "Marinated Grill Cottage Cheese", 265, "Cubes of paneer sat in a marinade, then cooked on the grill until the edges colour and the centre stays soft. Not a curry and not a fried nugget. Served hot, with the spice on the surface of the cheese. A full plate, eaten with a fork.", "cat_mains", "/items/cut/paneer.png")
 ];
+var ITEM_POS = {
+  item_moroccan: { num: "1", alpha: "MAS", favorite: true },
+  item_mint_latte: { num: "2", alpha: "ML", favorite: true },
+  item_espresso: { num: "3", alpha: "CE", favorite: true },
+  item_cappuccino: { num: "4", alpha: "CAP", favorite: true },
+  item_mocha: { num: "5", alpha: "CM", favorite: false },
+  item_cold_brew: { num: "6", alpha: "CB", favorite: false },
+  item_iced_americano: { num: "7", alpha: "IA", favorite: false },
+  item_saigon: { num: "8", alpha: "SCB", favorite: false },
+  item_sparkling: { num: "9", alpha: "SE", favorite: false },
+  item_red_john: { num: "10", alpha: "RJ", favorite: false },
+  item_tonic: { num: "11", alpha: "TG", favorite: false },
+  item_halloumi: { num: "12", alpha: "SW", favorite: false },
+  item_avocado_toast: { num: "13", alpha: "BP", favorite: false },
+  item_cheddar: { num: "14", alpha: "CK", favorite: false },
+  item_veg_club: { num: "15", alpha: "VCS", favorite: true },
+  item_croissant_sandwich: { num: "16", alpha: "CR", favorite: false },
+  item_harvest: { num: "17", alpha: "GHB", favorite: true },
+  item_penne: { num: "18", alpha: "PCP", favorite: true },
+  item_spaghetti: { num: "19", alpha: "SAO", favorite: false },
+  item_paneer: { num: "20", alpha: "MGC", favorite: true }
+};
 
 // server/seed.ts
 function syncSizes() {
@@ -1973,9 +2712,10 @@ function syncMenu(now) {
     );
   }
   MENU.forEach((dish, index) => {
+    const pos = ITEM_POS[dish.id] ?? { num: String(index + 1), alpha: dish.name.replace(/[^A-Za-z0-9\s]/g, " ").split(/\s+/).filter(Boolean).map((word) => word[0]).join("").toUpperCase(), favorite: false };
     run(
-      `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, sort_order, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+      `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          category_id = excluded.category_id,
          name = excluded.name,
@@ -1984,9 +2724,12 @@ function syncMenu(now) {
          image_url = excluded.image_url,
          is_veg = 1,
          is_available = 1,
+         is_favorite = excluded.is_favorite,
+         shortcut_num = excluded.shortcut_num,
+         shortcut_alpha = excluded.shortcut_alpha,
          sort_order = excluded.sort_order,
          updated_at = excluded.updated_at`,
-      [dish.id, CAFE_ID, dish.categoryId, dish.name, dish.description, dish.price, dish.image, index + 1, now]
+      [dish.id, CAFE_ID, dish.categoryId, dish.name, dish.description, dish.price, dish.image, pos.favorite ? 1 : 0, pos.num, pos.alpha, index + 1, now]
     );
     run("DELETE FROM menu_item_addon_groups WHERE menu_item_id = ?", [dish.id]);
     if (dish.coffee) {
@@ -2001,12 +2744,34 @@ function syncMenu(now) {
     [CAFE_ID, ...ids]
   );
 }
+function ensureTables(now) {
+  const floor = [];
+  for (let index = 1; index <= 10; index += 1) {
+    const name = `T${String(index).padStart(2, "0")}`;
+    floor.push({ name, qr: name, area: "Ground Floor" });
+  }
+  for (let index = 11; index <= 20; index += 1) {
+    const name = `T${String(index).padStart(2, "0")}`;
+    floor.push({ name, qr: name, area: "Basement" });
+  }
+  floor.push({ name: "Hall 1", qr: "HALL1", area: "Party Hall" });
+  floor.push({ name: "Hall 2", qr: "HALL2", area: "Party Hall" });
+  for (const table of floor) {
+    run(
+      `INSERT OR IGNORE INTO tables (id, cafe_id, name, qr_code, status, area, updated_at)
+       VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?)`,
+      [`table_${table.qr.toLowerCase()}`, CAFE_ID, table.name, table.qr, table.area, now]
+    );
+    run("UPDATE tables SET area = ? WHERE cafe_id = ? AND qr_code = ?", [table.area, CAFE_ID, table.qr]);
+  }
+}
 async function seed() {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   if (get("SELECT id FROM cafes WHERE id = ?", [CAFE_ID])) {
     run(`UPDATE cafes SET name = 'After Dunes' WHERE id = ? AND name = 'Habsos'`, [CAFE_ID]);
     syncSizes();
     syncMenu(now);
+    ensureTables(now);
     return;
   }
   run("INSERT INTO cafes (id, name, tax_bps, currency, timezone, created_at) VALUES (?, ?, 500, ?, ?, ?)", [CAFE_ID, "After Dunes", "INR", "Asia/Kolkata", now]);
@@ -2031,10 +2796,7 @@ async function seed() {
   insertAddon("addon_caramel", "group_extras", "Caramel Syrup", 30, 2);
   insertAddon("addon_cream", "group_extras", "Whipped Cream", 30, 3);
   syncMenu(now);
-  for (let index = 1; index <= 10; index += 1) {
-    const name = `T${String(index).padStart(2, "0")}`;
-    run("INSERT INTO tables (id, cafe_id, name, qr_code, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [`table_${name.toLowerCase()}`, CAFE_ID, name, name, "AVAILABLE", now]);
-  }
+  ensureTables(now);
   const ago = (minutes) => new Date(Date.now() - minutes * 60 * 1e3).toISOString();
   const completed = createStaffOrder({
     tableCode: "T01",

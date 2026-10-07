@@ -2,7 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useNavigate } from 'react-router-dom';
 import {
   canTransition,
+  dueTotal,
   normalizeMobile,
+  OPEN_STATUSES,
   priceCart,
   statusMessage,
   type Addon,
@@ -23,7 +25,9 @@ import { deviceId, enqueue, habdb, pendingQueue, readCatalog, writeCatalog, type
 import { api, ApiError, isNetworkError } from '../../lib/api';
 
 type User = { id: string; name: string; email: string; role: string };
-type Snapshot = LocalCatalog & { orders: Order[]; serverTime: string };
+type PaymentConfig = { razorpayKeyId: string };
+
+type Snapshot = LocalCatalog & { orders: Order[]; payments?: PaymentConfig; serverTime: string };
 
 type PosValue = {
   ready: boolean;
@@ -39,11 +43,49 @@ type PosValue = {
   tables: TableInfo[];
   orders: Order[];
   customers: CustomerSummary[];
+  payments: PaymentConfig;
   refresh: () => Promise<void>;
   flush: () => Promise<void>;
   setStatus: (orderId: string, status: OrderStatus) => Promise<void>;
-  pay: (orderId: string, method: PaymentMethod) => Promise<void>;
-  createOrder: (input: { tableId: string; customerName: string; customerMobile: string; items: { menuItemId: string; quantity: number; addonIds: string[]; notes?: string }[] }) => Promise<void>;
+  pay: (orderId: string, method: PaymentMethod, amount?: number) => Promise<void>;
+  createOrder: (input: {
+    tableId: string | null;
+    customerName: string;
+    customerMobile: string;
+    items: { menuItemId: string; quantity: number; addonIds: string[]; notes?: string }[];
+    notes?: string;
+    discount?: number;
+  }) => Promise<Order>;
+  updateOrder: (orderId: string, input: {
+    customerName: string;
+    customerMobile: string;
+    items: { menuItemId: string; quantity: number; addonIds: string[]; notes?: string }[];
+    notes?: string;
+    discount?: number;
+  }) => Promise<Order>;
+  splitOrder: (orderId: string, parts: number) => Promise<Order[]>;
+  createTable: (input: { name: string; area?: string }) => Promise<TableInfo>;
+  setTableStage: (tableId: string, stage: 'blank' | 'running' | 'kot' | 'printed' | 'paid') => Promise<void>;
+  createMenuItem: (input: {
+    categoryId: string;
+    name: string;
+    description?: string;
+    price: number;
+    imageUrl?: string | null;
+    isVeg?: boolean;
+    isFavorite?: boolean;
+    shortcutNum?: string | null;
+    shortcutAlpha?: string | null;
+    addonGroupIds?: string[];
+    menuLead?: string;
+    menuSubtitle?: string;
+    kcalLabel?: string;
+    ingredients?: string[];
+  }) => Promise<MenuItem>;
+  moveOrder: (orderId: string, tableId: string) => Promise<void>;
+  createCustomer: (input: { name: string; mobile: string }) => Promise<CustomerSummary>;
+  createReservation: (input: { tableId: string; customerName: string; customerMobile?: string; covers: number; startsAt?: string }) => Promise<TableInfo['reservation']>;
+  cancelReservation: (id: string) => Promise<void>;
   saveItem: (item: MenuItem) => Promise<void>;
   saveAddon: (addon: Pick<Addon, 'id' | 'name' | 'price' | 'isAvailable'>) => Promise<void>;
   saveTable: (id: string, status: TableStatus) => Promise<void>;
@@ -61,6 +103,21 @@ function sortOrders(orders: Order[]) {
   return orders.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/**
+ * The server snapshot covers open orders plus the last seven days. Anything inside
+ * that window but missing from the snapshot was deleted upstream, so drop it instead
+ * of letting it sit on the device forever. Older closed orders stay as local archive.
+ */
+async function pruneOrders(serverOrders: Order[], blocked: Set<string>) {
+  const live = new Set(serverOrders.map((order) => order.id));
+  const horizon = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const stale = (await habdb.orders.toArray())
+    .filter((order) => !live.has(order.id) && !blocked.has(order.id))
+    .filter((order) => OPEN_STATUSES.includes(order.status) || order.createdAt >= horizon)
+    .map((order) => order.id);
+  if (stale.length) await habdb.orders.bulkDelete(stale);
+}
+
 export function PosProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
@@ -71,6 +128,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [payments, setPayments] = useState<PaymentConfig>({ razorpayKeyId: '' });
   const flushing = useRef(false);
   const connRef = useRef(conn);
   connRef.current = conn;
@@ -161,7 +219,16 @@ export function PosProvider({ children }: { children: ReactNode }) {
       cafe: snap.cafe,
       categories: snap.categories,
       customers: snap.customers,
-      items: snap.items.map((item) => (blockedItems.has(item.id) ? local?.items.find((entry) => entry.id === item.id) ?? item : item)),
+      items: snap.items.map((item) => {
+        const merged = blockedItems.has(item.id) ? local?.items.find((entry) => entry.id === item.id) ?? item : item;
+        return {
+          ...merged,
+          menuLead: merged.menuLead ?? '',
+          menuSubtitle: merged.menuSubtitle ?? '',
+          kcalLabel: merged.kcalLabel ?? '',
+          ingredients: merged.ingredients ?? [],
+        };
+      }),
       addonGroups: snap.addonGroups.map((group) => ({
         ...group,
         addons: group.addons.map((addon) => {
@@ -176,6 +243,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
     for (const order of snap.orders) {
       if (!blockedOrders.has(order.id)) await habdb.orders.put(order);
     }
+    await pruneOrders(snap.orders, blockedOrders);
+    setPayments(snap.payments ?? { razorpayKeyId: '' });
     await reloadLocal();
     await flush();
   }, [flush, reloadLocal]);
@@ -299,13 +368,21 @@ export function PosProvider({ children }: { children: ReactNode }) {
     categories: catalog?.categories ?? [],
     items: catalog?.items ?? [],
     addonGroups: catalog?.addonGroups ?? [],
-    tables: catalog?.tables ?? [],
+    tables: (catalog?.tables ?? []).map((table) => ({
+      ...table,
+      area: table.area || 'Ground Floor',
+      reservation: table.reservation ?? null,
+      openOrder: table.openOrder
+        ? { ...table.openOrder, createdAt: table.openOrder.createdAt || '', due: table.openOrder.due ?? table.openOrder.total }
+        : null,
+    })),
     orders,
-    customers: catalog?.customers ?? [],
+    payments,
+    customers: (catalog?.customers ?? []).map((customer) => ({ ...customer, spent: customer.spent ?? 0 })),
     refresh: pull,
     flush,
     setStatus: async (orderId, status) => {
-      const order = orders.find((entry) => entry.id === orderId);
+      const order = await habdb.orders.get(orderId) ?? orders.find((entry) => entry.id === orderId);
       if (!order) return;
       if (order.status !== status && !canTransition(order.status, status)) {
         pushToast(`Cannot move this order to ${status}.`, 'err');
@@ -320,33 +397,133 @@ export function PosProvider({ children }: { children: ReactNode }) {
       };
       await habdb.orders.put(next);
       await enqueue({ operation: 'UPDATE_ORDER', entity: 'orders', entityId: orderId, payload: { status } });
-      setOrders((current) => current.map((entry) => (entry.id === orderId ? next : entry)));
+      setOrders((current) => {
+        const exists = current.some((entry) => entry.id === orderId);
+        return exists ? current.map((entry) => (entry.id === orderId ? next : entry)) : [next, ...current];
+      });
+      if (order.tableId && catalog) {
+        const leftover = (await habdb.orders.toArray()).filter((candidate) => (
+          candidate.tableId === order.tableId
+          && OPEN_STATUSES.includes(candidate.status)
+          && candidate.paymentStatus !== 'PAID'
+        ));
+        const latest = leftover.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+        await rememberCatalog({
+          ...catalog,
+          tables: catalog.tables.map((entry) => {
+            if (entry.id !== order.tableId) return entry;
+            if (!latest) return { ...entry, status: 'AVAILABLE' as const, openOrder: null };
+            return {
+              ...entry,
+              status: 'OCCUPIED' as const,
+              openOrder: {
+                id: latest.id,
+                orderNumber: latest.orderNumber,
+                customerName: latest.customerName,
+                total: leftover.reduce((sum, candidate) => sum + candidate.total, 0),
+                paymentStatus: latest.paymentStatus,
+                status: latest.status,
+                createdAt: latest.createdAt,
+                due: leftover.reduce((sum, candidate) => sum + dueTotal(candidate), 0),
+              },
+            };
+          }),
+        });
+      }
       await flush();
     },
-    pay: async (orderId, method) => {
-      const order = orders.find((entry) => entry.id === orderId);
+    pay: async (orderId, method, amount) => {
+      const order = await habdb.orders.get(orderId) ?? orders.find((entry) => entry.id === orderId);
       if (!order || order.paymentStatus === 'PAID') return;
+      const remaining = dueTotal(order);
+      const take = amount ?? remaining;
+      if (!Number.isInteger(take) || take < 1) {
+        pushToast('Enter an amount of at least ₹1.', 'err');
+        throw new Error('Enter an amount of at least ₹1.');
+      }
+      if (take > remaining) {
+        pushToast('Amount is more than the remainder.', 'err');
+        throw new Error('Amount is more than the remainder.');
+      }
       const now = new Date().toISOString();
+      const closed = take === remaining;
       const next: Order = {
         ...order,
-        paymentStatus: 'PAID',
+        paymentStatus: closed ? 'PAID' : 'UNPAID',
+        status: closed ? 'COMPLETED' : order.status,
         updatedAt: now,
-        payments: [...order.payments, { id: crypto.randomUUID(), method, amount: order.total, status: 'PAID', createdAt: now }],
-        events: [...order.events, { id: crypto.randomUUID(), type: 'payment', message: 'Paid', createdAt: now, actor: 'staff' }],
+        payments: [...order.payments, { id: crypto.randomUUID(), method, amount: take, status: 'PAID', createdAt: now }],
+        events: [
+          ...order.events,
+          { id: crypto.randomUUID(), type: 'payment', message: closed ? 'Paid' : `Part paid (${take})`, createdAt: now, actor: 'staff' },
+        ],
       };
       await habdb.orders.put(next);
-      await enqueue({ operation: 'MARK_PAID', entity: 'orders', entityId: orderId, payload: { method } });
-      setOrders((current) => current.map((entry) => (entry.id === orderId ? next : entry)));
+      await enqueue({ operation: 'MARK_PAID', entity: 'orders', entityId: orderId, payload: { method, amount: take } });
+      setOrders((current) => {
+        const exists = current.some((entry) => entry.id === orderId);
+        return exists ? current.map((entry) => (entry.id === orderId ? next : entry)) : [next, ...current];
+      });
+      if (order.tableId && catalog) {
+        const leftover = (await habdb.orders.toArray()).filter((candidate) => (
+          candidate.tableId === order.tableId
+          && OPEN_STATUSES.includes(candidate.status)
+          && candidate.paymentStatus !== 'PAID'
+        ));
+        const latest = leftover.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+        await rememberCatalog({
+          ...catalog,
+          tables: catalog.tables.map((entry) => {
+            if (entry.id !== order.tableId) return entry;
+            if (!latest) {
+              return {
+                ...entry,
+                status: 'OCCUPIED' as const,
+                openOrder: {
+                  id: next.id,
+                  orderNumber: next.orderNumber,
+                  customerName: next.customerName,
+                  total: next.total,
+                  paymentStatus: next.paymentStatus,
+                  status: next.status,
+                  createdAt: next.createdAt,
+                  due: dueTotal(next),
+                },
+              };
+            }
+            return {
+              ...entry,
+              status: 'OCCUPIED' as const,
+              openOrder: {
+                id: latest.id,
+                orderNumber: latest.orderNumber,
+                customerName: latest.customerName,
+                total: leftover.reduce((sum, candidate) => sum + candidate.total, 0),
+                paymentStatus: latest.paymentStatus,
+                status: latest.status,
+                createdAt: latest.createdAt,
+                due: leftover.reduce((sum, candidate) => sum + dueTotal(candidate), 0),
+              },
+            };
+          }),
+        });
+      }
       await flush();
     },
     createOrder: async (input) => {
       if (!catalog) throw new Error('Menu is not on this device yet.');
       const mobile = input.customerMobile.trim() ? normalizeMobile(input.customerMobile) : '';
       if (input.customerMobile.trim() && !mobile) throw new Error('Enter a valid 10-digit mobile number.');
-      const quote = priceCart({ lines: input.items, items: catalog.items, groups: catalog.addonGroups, taxBps: catalog.cafe.taxBps });
+      const quote = priceCart({
+        lines: input.items,
+        items: catalog.items,
+        groups: catalog.addonGroups,
+        taxBps: catalog.cafe.taxBps,
+        discount: input.discount ?? 0,
+      });
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const table = catalog.tables.find((entry) => entry.id === input.tableId) ?? null;
+      const table = input.tableId ? catalog.tables.find((entry) => entry.id === input.tableId) ?? null : null;
       const order: Order = {
         id,
         orderNumber: 0,
@@ -363,7 +540,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
         discount: quote.discount,
         total: quote.total,
         source: 'POS',
-        notes: '',
+        notes: (input.notes ?? '').slice(0, 400),
         createdAt: now,
         updatedAt: now,
         syncedAt: null,
@@ -385,18 +562,225 @@ export function PosProvider({ children }: { children: ReactNode }) {
         operation: 'CREATE_ORDER',
         entity: 'orders',
         entityId: id,
-        payload: { id, tableId: order.tableId, customerName: order.customerName, customerMobile: order.customerMobile, items: input.items },
+        payload: {
+          id,
+          tableId: order.tableId,
+          customerName: order.customerName,
+          customerMobile: order.customerMobile,
+          items: input.items,
+          notes: order.notes,
+          discount: input.discount ?? 0,
+        },
       });
       setOrders((current) => [order, ...current]);
       if (table) {
         const next = {
           ...catalog,
-          tables: catalog.tables.map((entry) => (entry.id === table.id ? { ...entry, status: 'OCCUPIED' as const, openOrder: { id, orderNumber: 0, customerName: order.customerName, total: order.total, paymentStatus: 'UNPAID' as const, status: 'CONFIRMED' as const } } : entry)),
+          tables: catalog.tables.map((entry) => (entry.id === table.id ? {
+            ...entry,
+            status: 'OCCUPIED' as const,
+            openOrder: {
+              id,
+              orderNumber: 0,
+              customerName: order.customerName,
+              total: order.total,
+              paymentStatus: 'UNPAID' as const,
+              status: 'CONFIRMED' as const,
+              createdAt: now,
+              due: order.total,
+            },
+            reservation: null,
+          } : entry)),
         };
         await rememberCatalog(next);
       }
       pushToast(navigator.onLine ? 'Order placed' : 'Order saved on this device');
       await flush();
+      return (await habdb.orders.get(id)) ?? order;
+    },
+    updateOrder: async (orderId, input) => {
+      if (!catalog) throw new Error('Menu is not on this device yet.');
+      const current = await habdb.orders.get(orderId) ?? orders.find((entry) => entry.id === orderId);
+      if (!current) throw new Error('Order not found.');
+      if (current.paymentStatus === 'PAID' || !OPEN_STATUSES.includes(current.status)) {
+        throw new Error('This order can no longer be edited.');
+      }
+      const mobile = input.customerMobile.trim() ? normalizeMobile(input.customerMobile) : '';
+      if (input.customerMobile.trim() && !mobile) throw new Error('Enter a valid 10-digit mobile number.');
+      const quote = priceCart({
+        lines: input.items,
+        items: catalog.items,
+        groups: catalog.addonGroups,
+        taxBps: catalog.cafe.taxBps,
+        discount: input.discount ?? current.discount,
+      });
+      const now = new Date().toISOString();
+      const next: Order = {
+        ...current,
+        customerName: input.customerName.trim() || current.customerName,
+        customerMobile: mobile || current.customerMobile,
+        subtotal: quote.subtotal,
+        tax: quote.tax,
+        discount: quote.discount,
+        total: quote.total,
+        notes: (input.notes ?? current.notes).slice(0, 400),
+        updatedAt: now,
+        items: quote.lines.map((line) => ({
+          id: crypto.randomUUID(),
+          menuItemId: line.menuItemId,
+          nameSnapshot: line.name,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          total: line.total,
+          notes: line.notes,
+          addons: line.addons.map((addon) => ({ id: crypto.randomUUID(), addonId: addon.addonId, nameSnapshot: addon.name, priceSnapshot: addon.price })),
+        })),
+        events: [...current.events, { id: crypto.randomUUID(), type: 'items', message: 'Items updated', createdAt: now, actor: 'staff' }],
+      };
+      await habdb.orders.put(next);
+      await enqueue({
+        operation: 'UPDATE_ORDER',
+        entity: 'orders',
+        entityId: orderId,
+        payload: {
+          items: input.items,
+          notes: next.notes,
+          customerName: next.customerName,
+          customerMobile: next.customerMobile,
+          discount: input.discount ?? current.discount,
+        },
+      });
+      setOrders((currentOrders) => currentOrders.map((entry) => (entry.id === orderId ? next : entry)));
+      if (current.tableId && catalog) {
+        await rememberCatalog({
+          ...catalog,
+          tables: catalog.tables.map((entry) => {
+            if (entry.id !== current.tableId || !entry.openOrder || entry.openOrder.id !== orderId) return entry;
+            return { ...entry, openOrder: { ...entry.openOrder, customerName: next.customerName, total: next.total, due: dueTotal(next) } };
+          }),
+        });
+      }
+      pushToast(navigator.onLine ? 'Order updated' : 'Order saved on this device');
+      await flush();
+      return (await habdb.orders.get(orderId)) ?? next;
+    },
+    splitOrder: async (orderId, parts) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to split bills.', 'err');
+        throw new Error('Connect to split bills.');
+      }
+      try {
+        await flush();
+        const result = await api<{ orders: Order[] }>(`/api/orders/${orderId}/split`, { method: 'POST', body: JSON.stringify({ parts }) });
+        await pull();
+        pushToast(`Split into ${result.orders.length} bills`);
+        return result.orders;
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not split.', 'err');
+        throw error;
+      }
+    },
+    createTable: async (input) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to add a table.', 'err');
+        throw new Error('Connect to add a table.');
+      }
+      try {
+        const result = await api<{ table: TableInfo }>('/api/tables', { method: 'POST', body: JSON.stringify(input) });
+        await pull();
+        pushToast(`Table ${result.table.name} added`);
+        return result.table;
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not add the table.', 'err');
+        throw error;
+      }
+    },
+    setTableStage: async (tableId, stage) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to change table stage.', 'err');
+        throw new Error('Connect to change table stage.');
+      }
+      try {
+        await api(`/api/tables/${tableId}/stage`, { method: 'POST', body: JSON.stringify({ stage }) });
+        await pull();
+        pushToast('Table updated');
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not update the table.', 'err');
+        throw error;
+      }
+    },
+    createMenuItem: async (input) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to add menu items.', 'err');
+        throw new Error('Connect to add menu items.');
+      }
+      try {
+        const result = await api<{ item: MenuItem }>('/api/menu/items', { method: 'POST', body: JSON.stringify(input) });
+        await pull();
+        pushToast(`${result.item.name} added to menu`);
+        return result.item;
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not add the item.', 'err');
+        throw error;
+      }
+    },
+    createCustomer: async (input) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to add a customer.', 'err');
+        throw new Error('Connect to add a customer.');
+      }
+      try {
+        const result = await api<{ customer: CustomerSummary }>('/api/customers', { method: 'POST', body: JSON.stringify(input) });
+        await pull();
+        pushToast(`${result.customer.name} saved`);
+        return result.customer;
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not save the customer.', 'err');
+        throw error;
+      }
+    },
+    createReservation: async (input) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to hold a table.', 'err');
+        throw new Error('Connect to hold a table.');
+      }
+      try {
+        const result = await api<{ reservation: NonNullable<TableInfo['reservation']> }>('/api/reservations', { method: 'POST', body: JSON.stringify(input) });
+        await pull();
+        pushToast('Table reserved');
+        return result.reservation;
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not reserve the table.', 'err');
+        throw error;
+      }
+    },
+    cancelReservation: async (id) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to cancel a reservation.', 'err');
+        throw new Error('Connect to cancel a reservation.');
+      }
+      try {
+        await api(`/api/reservations/${id}/cancel`, { method: 'POST' });
+        await pull();
+        pushToast('Reservation cancelled');
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not cancel.', 'err');
+        throw error;
+      }
+    },
+    moveOrder: async (orderId, tableId) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to move items.', 'err');
+        throw new Error('Connect to move items.');
+      }
+      try {
+        await api(`/api/orders/${orderId}/table`, { method: 'PATCH', body: JSON.stringify({ tableId }) });
+        await pull();
+        pushToast('Items moved');
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not move items.', 'err');
+        throw error;
+      }
     },
     saveItem: async (item) => {
       if (!catalog) return;
@@ -406,7 +790,21 @@ export function PosProvider({ children }: { children: ReactNode }) {
         operation: 'UPDATE_MENU',
         entity: 'menu',
         entityId: item.id,
-        payload: { name: item.name, description: item.description, price: item.price, isAvailable: item.isAvailable, imageUrl: item.imageUrl, isVeg: item.isVeg },
+        payload: {
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          isAvailable: item.isAvailable,
+          imageUrl: item.imageUrl,
+          isVeg: item.isVeg,
+          isFavorite: item.isFavorite,
+          shortcutNum: item.shortcutNum,
+          shortcutAlpha: item.shortcutAlpha,
+          menuLead: item.menuLead,
+          menuSubtitle: item.menuSubtitle,
+          kcalLabel: item.kcalLabel,
+          ingredients: item.ingredients,
+        },
       });
       await flush();
     },
@@ -479,7 +877,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
       await habdb.meta.delete('user');
       navigate('/pos/login', { replace: true });
     },
-  }), [catalog, conn, flush, orders, pending, pull, queue, ready, rememberCatalog, reloadLocal, syncError, user, navigate]);
+  }), [catalog, conn, flush, orders, payments, pending, pull, queue, ready, rememberCatalog, reloadLocal, syncError, user, navigate]);
 
   return <PosContext.Provider value={value}>{children}</PosContext.Provider>;
 }

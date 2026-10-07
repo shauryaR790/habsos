@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS tables (
   name TEXT NOT NULL,
   qr_code TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
+  area TEXT NOT NULL DEFAULT 'Ground Floor',
   updated_at TEXT NOT NULL
 );
 
@@ -62,6 +63,9 @@ CREATE TABLE IF NOT EXISTS menu_items (
   image_url TEXT,
   is_veg INTEGER NOT NULL,
   is_available INTEGER NOT NULL,
+  is_favorite INTEGER NOT NULL DEFAULT 0,
+  shortcut_num TEXT,
+  shortcut_alpha TEXT,
   sort_order INTEGER NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -189,12 +193,87 @@ CREATE TABLE IF NOT EXISTS order_counters (
   next_number INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reservations (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  table_id TEXT NOT NULL REFERENCES tables(id),
+  customer_name TEXT NOT NULL,
+  mobile TEXT NOT NULL DEFAULT '',
+  covers INTEGER NOT NULL,
+  starts_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
 CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_otp_order ON otp_challenges(order_id, created_at);
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  sku TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'Raw material',
+  unit TEXT NOT NULL,
+  qty REAL NOT NULL DEFAULT 0,
+  reorder_level REAL NOT NULL DEFAULT 0,
+  cost_per_unit INTEGER NOT NULL DEFAULT 0,
+  supplier TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  item_id TEXT NOT NULL REFERENCES inventory_items(id),
+  kind TEXT NOT NULL,
+  qty_delta REAL NOT NULL,
+  unit_cost INTEGER NOT NULL DEFAULT 0,
+  reference TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  supplier TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT 'staff'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_mov_ref ON inventory_movements(item_id, reference) WHERE reference != '';
+
+CREATE TABLE IF NOT EXISTS menu_recipes (
+  menu_item_id TEXT NOT NULL REFERENCES menu_items(id),
+  inventory_item_id TEXT NOT NULL REFERENCES inventory_items(id),
+  qty_per_portion REAL NOT NULL,
+  PRIMARY KEY (menu_item_id, inventory_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inv_items_cafe ON inventory_items(cafe_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_inv_mov_cafe ON inventory_movements(cafe_id, created_at);
 `);
+  migrate(database);
   return database;
+}
+
+function tableColumns(database: DatabaseSync, table: string) {
+  return (database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((col) => col.name);
+}
+
+function addColumn(database: DatabaseSync, table: string, name: string, definition: string) {
+  if (!tableColumns(database, table).includes(name)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+
+function migrate(database: DatabaseSync) {
+  addColumn(database, 'tables', 'area', "TEXT NOT NULL DEFAULT 'Ground Floor'");
+  addColumn(database, 'menu_items', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn(database, 'menu_items', 'shortcut_num', 'TEXT');
+  addColumn(database, 'menu_items', 'shortcut_alpha', 'TEXT');
+  addColumn(database, 'menu_items', 'menu_lead', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'menu_items', 'menu_subtitle', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'menu_items', 'kcal_label', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'menu_items', 'ingredients_json', "TEXT NOT NULL DEFAULT '[]'");
 }
 
 let current: DatabaseSync | null = null;

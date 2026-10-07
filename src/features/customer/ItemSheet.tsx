@@ -4,7 +4,7 @@ import { formatINR } from '../../../shared/domain';
 import { Drawer } from '../../components/Drawer';
 import { TextArea } from '../../components/Input';
 import type { Bootstrap } from './cart';
-import { atLeastThree, IngredientLine, MENU_FACTS } from './menuFacts';
+import { atLeastThree, IngredientLine, itemMenuDisplay } from './menuFacts';
 
 type Stage = 'peek' | 'make';
 
@@ -22,7 +22,7 @@ export function ItemSheet({
   onSave: (value: { quantity: number; addonIds: string[]; notes: string }) => void;
 }) {
   const groups = catalog.addonGroups.filter((group) => item.addonGroupIds.includes(group.id));
-  const [stage, setStage] = useState<Stage>(initial ? 'make' : 'peek');
+  const [stage, setStage] = useState<Stage>(initial || groups.length ? 'make' : 'peek');
   const [quantity, setQuantity] = useState(initial?.quantity ?? 1);
   const [selected, setSelected] = useState<string[]>(initial?.addonIds ?? []);
   const [notes, setNotes] = useState(initial?.notes ?? '');
@@ -80,10 +80,11 @@ export function ItemSheet({
     const scroller = root?.closest('.sheet-body') as HTMLElement | null;
     if (!root || !scroller) return;
     const minH = 200;
+    const cap = parseFloat(getComputedStyle(root).getPropertyValue('--hero-max')) || Infinity;
     let frame = 0;
     const apply = () => {
       frame = 0;
-      const square = root.clientWidth;
+      const square = Math.min(root.clientWidth, cap);
       const range = Math.max(1, square - minH);
       const progress = Math.min(1, Math.max(0, scroller.scrollTop / range));
       const live = square - (square - minH) * progress;
@@ -131,7 +132,7 @@ export function ItemSheet({
     setLeaving(true);
   }
 
-  const fact = MENU_FACTS[item.id];
+  const fact = itemMenuDisplay(item);
   const summary = groups
     .flatMap((group) => group.addons.filter((addon) => selected.includes(addon.id)).map((addon) => addon.name))
     .join(' · ');
@@ -172,10 +173,14 @@ export function ItemSheet({
             {fact ? (
               <>
                 <p className="peek-sub">
-                  <strong>{fact.lead}</strong>
-                  <span> ({fact.titled}) - {fact.kcal}</span>
+                  {fact.lead ? <strong>{fact.lead}</strong> : null}
+                  {fact.titled || fact.kcal ? (
+                    <span>
+                      {fact.lead ? ' ' : ''}({fact.titled || item.name}){fact.kcal ? ` - ${fact.kcal}` : ''}
+                    </span>
+                  ) : null}
                 </p>
-                <IngredientLine ids={fact.ingredients} />
+                {fact.ingredients.length ? <IngredientLine ids={fact.ingredients} /> : null}
               </>
             ) : null}
             <p className="peek-story">{item.description}</p>

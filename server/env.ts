@@ -33,7 +33,8 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 8787),
   sessionSecret: process.env.SESSION_SECRET || 'dev-only-change-me',
-  otpProvider: process.env.OTP_PROVIDER || 'mock',
+  otpProvider: process.env.OTP_PROVIDER || (process.env.FAST2SMS_API_KEY ? 'fast2sms' : 'mock'),
+  fast2smsApiKey: process.env.FAST2SMS_API_KEY || '',
   otpDevExpose: process.env.OTP_DEV_EXPOSE === 'true',
   adminEmail: process.env.ADMIN_EMAIL || 'admin@habs.cafe',
   adminPassword: process.env.ADMIN_PASSWORD || 'habsos-admin',
@@ -41,6 +42,8 @@ export const env = {
   smsAccountSid: process.env.SMS_ACCOUNT_SID || '',
   smsAuthToken: process.env.SMS_AUTH_TOKEN || '',
   smsFrom: process.env.SMS_FROM || '',
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || '',
 };
 
 export function isProduction() {
@@ -48,5 +51,11 @@ export function isProduction() {
 }
 
 export function exposeDevOtp() {
-  return !isProduction() && env.nodeEnv === 'development' && env.otpDevExpose;
+  if (isProduction()) return false;
+  if (env.otpProvider === 'mock') return true;
+  return env.otpDevExpose;
+}
+
+export function razorpayEnabled() {
+  return Boolean(env.razorpayKeyId && env.razorpayKeySecret);
 }

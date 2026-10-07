@@ -6,11 +6,13 @@ export function Modal({
   title,
   onClose,
   children,
+  className,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -32,7 +34,7 @@ export function Modal({
   return (
     <div className="modal-root">
       <button type="button" className="backdrop" aria-label="Close dialog" onClick={onClose} />
-      <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1}>
+      <div ref={ref} className={className ? `modal ${className}` : 'modal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1}>
         <header className="sheet-head">
           <h2 id="modal-title">{title}</h2>
           <Button variant="ghost" onClick={onClose}>Close</Button>

@@ -1,6 +1,6 @@
 import type { MenuItem } from '../../shared/domain';
 import { formatINR } from '../../shared/domain';
-import { MENU_FACTS } from '../features/customer/menuFacts';
+import { menuDisplayFor } from '../../shared/menuDisplay';
 
 export function ProductCard({
   item,
@@ -22,7 +22,7 @@ export function ProductCard({
       <span className="sb-copy">
         {compact ? null : <span className={item.isVeg ? 'mark veg' : 'mark nonveg'} aria-label={item.isVeg ? 'Vegetarian' : 'Non-vegetarian'} />}
         <span className="sb-name">{item.name}</span>
-        {item.isAvailable ? <span className="sb-meta">{MENU_FACTS[item.id]?.kcal ?? item.description}</span> : <span className="sb-meta">Currently not available</span>}
+        {item.isAvailable ? <span className="sb-meta">{menuDisplayFor(item)?.kcal || item.kcalLabel || item.description}</span> : <span className="sb-meta">Currently not available</span>}
         <span className="sb-price">{formatINR(item.price)}</span>
       </span>
       {item.isAvailable ? <span className="sb-plus" aria-hidden="true">+</span> : null}

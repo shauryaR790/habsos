@@ -15,6 +15,7 @@ export type Bootstrap = {
   categories: MenuCategory[];
   items: MenuItem[];
   addonGroups: AddonGroup[];
+  payments?: { razorpayKeyId: string };
 };
 
 export type CartLine = {
