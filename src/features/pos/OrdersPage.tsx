@@ -43,10 +43,6 @@ function matchesFilter(order: Order, filter: Filter) {
   return !order.tableId;
 }
 
-function isOtpWait(order: Order) {
-  return order.status === 'OTP_PENDING';
-}
-
 export function OrdersPage() {
   useTitle('Running Orders');
   const pos = usePos();
@@ -60,10 +56,6 @@ export function OrdersPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const otpWaiting = useMemo(
-    () => pos.orders.filter(isOtpWait).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [pos.orders],
-  );
   const running = useMemo(
     () => pos.orders.filter(isRunning).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.orderNumber - a.orderNumber),
     [pos.orders],
@@ -124,19 +116,6 @@ export function OrdersPage() {
         <h1>Running Orders</h1>
         <span className="run-count">{running.length} open</span>
       </header>
-
-      {otpWaiting.length ? (
-        <section className="pos-hub-alert run-otp" aria-label="Guests verifying OTP">
-          <strong>{otpWaiting.length} waiting on SMS code</strong>
-          <ul>
-            {otpWaiting.map((order) => (
-              <li key={order.id}>
-                #{order.orderNumber || '…'} · {tableLabel(order.tableName ?? '—')} · {order.customerName} · {maskMobile(order.customerMobile)}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       <div className="list-tools">
         <label className="search">

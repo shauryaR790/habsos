@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   dueTotal,
   formatINR,
-  maskMobile,
   OPEN_STATUSES,
   registerPath,
   TABLE_AREAS,
@@ -83,7 +82,6 @@ export function TablesPage() {
     && OPEN_STATUSES.includes(order.status)
     && (!contactTable || order.tableId === contactTable)
   ));
-  const otpWaiting = pos.orders.filter((order) => order.status === 'OTP_PENDING');
   const dueCount = pos.orders.filter((order) => order.paymentStatus === 'UNPAID' && OPEN_STATUSES.includes(order.status)).length;
 
   useEffect(() => {
@@ -275,18 +273,6 @@ export function TablesPage() {
           <strong>Collect payment</strong>
           <span>{dueCount ? `${dueCount} open · ${formatINR(pos.orders.filter((o) => o.paymentStatus === 'UNPAID' && OPEN_STATUSES.includes(o.status)).reduce((s, o) => s + dueTotal(o), 0))} due` : 'Nothing due'}</span>
         </button>
-        {otpWaiting.length ? (
-          <aside className="pos-hub-alert" role="status">
-            <strong>{otpWaiting.length} guest{otpWaiting.length === 1 ? '' : 's'} verifying OTP</strong>
-            <ul>
-              {otpWaiting.map((order) => (
-                <li key={order.id}>
-                  {tableLabel(order.tableName ?? '—')} · {order.customerName} · {maskMobile(order.customerMobile)}
-                </li>
-              ))}
-            </ul>
-          </aside>
-        ) : null}
       </section>
 
       <div className="tv-body">
