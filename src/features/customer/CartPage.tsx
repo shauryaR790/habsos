@@ -46,7 +46,7 @@ export function CartPage() {
   const empty = cart.lines.length === 0;
 
   return (
-    <div className={`guest cart-screen${empty ? ' cart-screen-empty' : ''}`}>
+    <div className={`guest cart-screen ad-guest-cart${empty ? ' cart-screen-empty' : ''}`}>
       <div className="guest-desktop-head">
         <GuestHeader
           brand={cart.catalog?.cafe.name ?? 'After Dunes'}

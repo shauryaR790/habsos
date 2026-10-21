@@ -145,7 +145,7 @@ export function ItemSheet({
     .join(' · ');
 
   const goFromPeek = () => {
-    if (groups.length) setStage('make');
+    if (groups.some((group) => group.minSelect > 0)) setStage('make');
     else save();
   };
 

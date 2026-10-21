@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { LoadingState } from '../../components/LoadingState';
 import { Modal } from '../../components/Modal';
+import { pushToast } from '../../components/Toast';
 import { useCart, type Bootstrap, type CartLine } from './cart';
 import { ItemSheet } from './ItemSheet';
 import { EXPLORE_HEAD, RECOMMENDED } from './menuFacts';
@@ -141,13 +142,15 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
   }
 
   function addItemFromCard(item: Bootstrap['items'][number]) {
-    if (!catalog) return;
-    const hasAddons = catalog.addonGroups.some((group) => item.addonGroupIds.includes(group.id));
-    if (hasAddons) {
+    if (!catalog || !item.isAvailable) return;
+    const groups = catalog.addonGroups.filter((group) => item.addonGroupIds.includes(group.id));
+    const needsOptions = groups.some((group) => group.minSelect > 0);
+    if (needsOptions) {
       openItem(item);
       return;
     }
     cart.addLine({ menuItemId: item.id, quantity: 1, addonIds: [], notes: '' });
+    pushToast(`Added ${item.name}`);
   }
 
   const shell = (
@@ -195,7 +198,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
             </>
           ) : null}
         </main>
-        {(!landingSection || landingNavVisible) ? (
+        {(!landingSection || landingNavVisible) && !sheetItem ? (
           <AdBottomNav
             active="menu"
             cartTotal={cart.totals?.total ?? null}
