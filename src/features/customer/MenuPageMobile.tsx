@@ -6,7 +6,6 @@ import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { LoadingState } from '../../components/LoadingState';
 import { Modal } from '../../components/Modal';
-import { pushToast } from '../../components/Toast';
 import { useCart, type Bootstrap, type CartLine } from './cart';
 import { ItemSheet } from './ItemSheet';
 import { EXPLORE_HEAD, RECOMMENDED } from './menuFacts';
@@ -141,18 +140,6 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
     setSheet({ itemId: item.id });
   }
 
-  function addItemFromCard(item: Bootstrap['items'][number]) {
-    if (!catalog || !item.isAvailable) return;
-    const groups = catalog.addonGroups.filter((group) => item.addonGroupIds.includes(group.id));
-    const needsOptions = groups.some((group) => group.minSelect > 0);
-    if (needsOptions) {
-      openItem(item);
-      return;
-    }
-    cart.addLine({ menuItemId: item.id, quantity: 1, addonIds: [], notes: '' });
-    pushToast(`Added ${item.name}`);
-  }
-
   const shell = (
       <AdMobileShell className="ad-viewport--menu">
         <main id="menu" className="ad-menu-scroll ad-menu-scroll--brew">
@@ -176,7 +163,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
                         key={item.id}
                         item={item}
                         onOpen={openItem}
-                        onAddToCart={addItemFromCard}
+                        onAddToCart={openItem}
                         cornerSticker={brewCardStickerForIndex(index)}
                       />
                     ))}
@@ -188,7 +175,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
                 {exploreMenu.length ? (
                   <div className="ad-brew-grid">
                     {exploreMenu.map((item) => (
-                      <AdProductCard key={item.id} item={item} onOpen={openItem} onAddToCart={addItemFromCard} />
+                      <AdProductCard key={item.id} item={item} onOpen={openItem} onAddToCart={openItem} />
                     ))}
                   </div>
                 ) : (

@@ -9,7 +9,6 @@ import { CartItem } from '../../components/CartItem';
 import { ItemSheet } from './ItemSheet';
 import { useCart, type Bootstrap } from './cart';
 import { GuestHeader } from './GuestHeader';
-
 export function CartPage() {
   useTitle('Cart');
   const cart = useCart();
@@ -74,18 +73,11 @@ export function CartPage() {
           {empty ? (
             <div className="cart-empty-stack">
               <div className="cart-empty">
-                <span className="cart-empty-art">
-                  <img src="/items/cut/cappuccino.png" alt="" />
-                </span>
+                <div className="cart-empty-sticker">
+                  <img src="/ad/brew-sticker-1.png" alt="" width={220} height={220} decoding="async" />
+                </div>
                 <h2>Nothing in the bag</h2>
-                <p>Pick a drink or a plate and it lands right here.</p>
               </div>
-              <Link className="pay-bar cart-desktop-cta cart-empty-cta" to={menuHref}>
-                <span>Browse the menu</span>
-                <span className="pay-go" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </span>
-              </Link>
             </div>
           ) : (
             <div className="cart-list">
@@ -132,6 +124,11 @@ export function CartPage() {
           </aside>
         ) : null}
       </div>
+      {empty ? (
+        <Link className="pay-bar cart-empty-foot" to={menuHref}>
+          <span>Browse menu</span>
+        </Link>
+      ) : null}
       {editingItem && editingLine && cart.catalog ? (
         <ItemSheet
           item={editingItem}

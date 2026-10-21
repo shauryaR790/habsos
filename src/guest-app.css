@@ -931,12 +931,17 @@ body:has(.ad-app.ad-menu-page) .toasts {
 @media (max-width: 1023px) {
   html:has(.ad-guest-landing),
   body:has(.ad-guest-landing),
-  html:has(.cart-screen.ad-guest-cart),
-  body:has(.cart-screen.ad-guest-cart) {
+  html:has(.ad-guest-order),
+  body:has(.ad-guest-order) {
     background: var(--ad-menu-bg, #b8d4eb);
   }
 
-  .cart-screen.ad-guest-cart {
+  html:has(.ad-guest-cart),
+  body:has(.ad-guest-cart) {
+    background: var(--ad-cart-bg, #fce993);
+  }
+
+  .order-screen.ad-guest-order {
     --ad-menu-bg: #b8d4eb;
     --ad-menu-grid-line: rgba(47, 95, 158, 0.38);
     --ad-menu-grid-size: 26px;
@@ -948,14 +953,49 @@ body:has(.ad-app.ad-menu-page) .toasts {
     background-position: center top;
   }
 
-  .cart-screen.ad-guest-cart .guest-bar.cart-head,
-  .cart-screen.ad-guest-cart .guest-bar-mobile-only.cart-head {
+  .order-screen.ad-guest-order .guest-bar,
+  .order-screen.ad-guest-order .order-top-bar {
     background: transparent;
   }
 
-  .cart-screen.ad-guest-cart .cart-dock {
+  .cart-screen.ad-guest-cart,
+  .checkout-screen.ad-guest-cart {
+    --ad-hero-font: "Anton", "Roboto Condensed", "Arial Narrow", sans-serif;
+    --ad-font: "Outfit", "Figtree", "Segoe UI", sans-serif;
+    --ad-radius-pill: 999px;
+    --ad-cart-bg: #fce993;
+    --ad-cart-grid-line: rgba(168, 118, 32, 0.34);
+    --ad-cart-grid-size: 26px;
+    background-color: var(--ad-cart-bg);
+    background-image:
+      linear-gradient(to right, var(--ad-cart-grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--ad-cart-grid-line) 1px, transparent 1px);
+    background-size: var(--ad-cart-grid-size) var(--ad-cart-grid-size);
+    background-position: center top;
+  }
+
+  .ad-guest-cart .guest-bar.cart-head,
+  .ad-guest-cart .guest-bar-mobile-only.cart-head {
     background: transparent;
   }
+
+  .ad-guest-cart .cart-dock,
+  .ad-guest-cart .checkout-totals.cart-dock {
+    background: transparent;
+  }
+
+}
+
+.cart-screen-empty .cart-layout {
+  flex: 1;
+  min-height: 0;
+}
+
+.cart-screen-empty > .cart-empty-foot {
+  margin-top: auto;
+  flex-shrink: 0;
+  justify-content: center;
+  text-decoration: none;
 }
 
 @media (min-width: 640px) and (max-width: 1023px) {

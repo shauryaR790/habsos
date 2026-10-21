@@ -72,7 +72,7 @@ export function CheckoutPage() {
 
   if (!cart.tableCode || cart.lines.length === 0) {
     return (
-      <div className="guest cart-screen checkout-screen checkout-screen-empty">
+      <div className="guest cart-screen checkout-screen ad-guest-cart checkout-screen-empty">
         <div className="guest-desktop-head">
           <GuestHeader
             brand={cart.catalog?.cafe.name ?? 'After Dunes'}
@@ -239,7 +239,7 @@ export function CheckoutPage() {
   );
 
   return (
-    <div className={`guest cart-screen checkout-screen${otp ? ' checkout-screen-otp' : ''}`}>
+    <div className={`guest cart-screen checkout-screen ad-guest-cart${otp ? ' checkout-screen-otp' : ''}`}>
       <div className="guest-desktop-head">
         <GuestHeader
           brand={cart.catalog?.cafe.name ?? 'After Dunes'}

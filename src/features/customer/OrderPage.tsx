@@ -65,7 +65,7 @@ export function OrderPage() {
   }
 
   return (
-    <div className="guest order-screen">
+    <div className="guest order-screen ad-guest-order">
       <header className="guest-bar order-top-bar">
         <p className="wordmark">Order #{order.orderNumber}</p>
       </header>
@@ -141,7 +141,7 @@ export function OrderPage() {
           <span>{formatINR(order.total)}</span>
         </button>
       ) : (
-        <Link className="pay-bar" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>
+        <Link className="pay-bar pay-bar--center" to={`/menu${order.tableName ? `?table=${encodeURIComponent(order.tableName)}` : ''}`}>
           <span>Back to menu</span>
         </Link>
       )}

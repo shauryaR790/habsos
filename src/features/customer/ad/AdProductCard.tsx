@@ -72,10 +72,7 @@ export function AdProductCard({
             <button
               type="button"
               className="ad-brew-add"
-              onClick={(event) => {
-                event.stopPropagation();
-                onAddToCart(item);
-              }}
+              onClick={() => onAddToCart(item)}
               disabled={!item.isAvailable}
             >
               Add to cart
