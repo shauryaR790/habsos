@@ -72,12 +72,20 @@ export function CartPage() {
             {cart.tableCode ? <p className="cart-page-meta">Table {cart.tableCode}</p> : null}
           </header>
           {empty ? (
-            <div className="cart-empty">
-              <span className="cart-empty-art">
-                <img src="/items/cut/cappuccino.png" alt="" />
-              </span>
-              <h2>Nothing in the bag</h2>
-              <p>Pick a drink or a plate and it lands right here.</p>
+            <div className="cart-empty-stack">
+              <div className="cart-empty">
+                <span className="cart-empty-art">
+                  <img src="/items/cut/cappuccino.png" alt="" />
+                </span>
+                <h2>Nothing in the bag</h2>
+                <p>Pick a drink or a plate and it lands right here.</p>
+              </div>
+              <Link className="pay-bar cart-desktop-cta cart-empty-cta" to={menuHref}>
+                <span>Browse the menu</span>
+                <span className="pay-go" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </span>
+              </Link>
             </div>
           ) : (
             <div className="cart-list">
@@ -96,16 +104,6 @@ export function CartPage() {
           )}
           {cart.quoteError ? <p className="field-error" role="alert">{cart.quoteError}</p> : null}
         </main>
-        {empty ? (
-          <div className="cart-end cart-end-empty">
-            <Link className="pay-bar cart-desktop-cta" to={menuHref}>
-              <span>Browse the menu</span>
-              <span className="pay-go" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </span>
-            </Link>
-          </div>
-        ) : null}
         {cart.totals ? (
           <aside className="cart-end cart-summary" aria-label="Order summary">
             <footer className="cart-dock">

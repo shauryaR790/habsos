@@ -11,13 +11,22 @@ import type { MenuItem } from '../../../shared/domain';
 export type { IngredientId, MenuDisplay as MenuFact };
 export { INGREDIENT_IDS, menuDisplayFor, LEGACY_MENU_DISPLAY as MENU_FACTS };
 
+/** Daily Brew — first rows on mobile guest menu (order matters). */
 export const RECOMMENDED = [
+  'item_tonic',
+  'item_halloumi',
+  'item_avocado_toast',
+  'item_cheddar',
+  'item_veg_club',
+  'item_harvest',
+];
+
+/** Shown first in Explore More after a swap with the old Daily Brew lead four. */
+export const EXPLORE_HEAD = [
   'item_cappuccino',
   'item_saigon',
   'item_mint_latte',
   'item_moroccan',
-  'item_veg_club',
-  'item_harvest',
 ];
 
 const ROUND_FILL: IngredientId[] = ['soy', 'wheat', 'milk'];
@@ -33,6 +42,12 @@ export function atLeastThree(ids: IngredientId[]) {
 
 export function itemMenuDisplay(item: MenuItem): MenuDisplay | null {
   return menuDisplayFor(item);
+}
+
+export function itemIngredientLine(item: MenuItem): string {
+  const fact = menuDisplayFor(item);
+  if (!fact?.ingredients.length) return '';
+  return fact.ingredients.map((id) => INGREDIENT_LABELS[id].toLowerCase()).join(' + ');
 }
 
 export function IngredientLine({ ids, className = '' }: { ids: IngredientId[]; className?: string }) {

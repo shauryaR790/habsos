@@ -9,8 +9,6 @@ import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Input } from '../../components/Input';
 import { useCart, type Bootstrap } from './cart';
-import { PlacedBurst } from './PlacedBurst';
-
 type OtpStep = {
   orderId: string;
   mobile: string;
@@ -36,7 +34,6 @@ export function CheckoutPage() {
   const [wait, setWait] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [placed, setPlaced] = useState<PublicOrder | null>(null);
   const [payPref, setPayPref] = useState<GuestPaymentPreference>('DESK');
   const [address, setAddress] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -71,10 +68,6 @@ export function CheckoutPage() {
     return () => window.clearTimeout(id);
   }, [wait]);
 
-  if (placed) {
-    return <PlacedBurst order={placed} onDone={() => navigate(`/order/${placed.id}`)} />;
-  }
-
   const menuHref = `/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`;
 
   if (!cart.tableCode || cart.lines.length === 0) {
@@ -99,10 +92,17 @@ export function CheckoutPage() {
           <p className="wordmark">Checkout</p>
         </header>
         <main className="guest-main checkout-main">
-          <div className="cart-empty">
-            <h1>Nothing to check out</h1>
-            <p>Your cart is empty, or this visit has no table QR.</p>
-            <Link className="btn btn-primary" to={menuHref}>Back to menu</Link>
+          <div className="cart-empty-stack">
+            <div className="cart-empty">
+              <h1>Nothing to check out</h1>
+              <p>Your cart is empty, or this visit has no table QR.</p>
+            </div>
+            <Link className="pay-bar cart-desktop-cta cart-empty-cta" to={menuHref}>
+              <span>Back to menu</span>
+              <span className="pay-go" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </span>
+            </Link>
           </div>
         </main>
         <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
@@ -121,7 +121,7 @@ export function CheckoutPage() {
 
   function finish(order: PublicOrder) {
     cart.clear();
-    setPlaced(order);
+    navigate(`/order/${order.id}`, { replace: true });
   }
 
   async function start(event: React.FormEvent) {

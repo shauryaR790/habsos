@@ -10,7 +10,6 @@ import { PaymentBadge } from '../../components/PaymentBadge';
 import { StatusBadge } from '../../components/StatusBadge';
 import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { pushToast } from '../../components/Toast';
-
 export function OrderPage() {
   const { id = '' } = useParams();
   const [order, setOrder] = useState<PublicOrder | null>(null);
@@ -67,24 +66,28 @@ export function OrderPage() {
 
   return (
     <div className="guest order-screen">
-      <header className="guest-bar">
+      <header className="guest-bar order-top-bar">
         <p className="wordmark">Order #{order.orderNumber}</p>
       </header>
-      <div className="order-hero" role="status">
-        <div className="placed-mark" aria-hidden="true">
-          <svg viewBox="0 0 72 72">
-            <circle className="placed-ring" cx="36" cy="36" r="32" />
-            <path className="placed-check" d="M22 37.5 32 47.5 51 26" />
-          </svg>
-        </div>
-        <p className="placed-kicker">{statusMessage(order.status)}</p>
-      </div>
-      <main className="receipt order-bill">
-        <div className="badge-row">
-          <StatusBadge status={order.status} />
-          <PaymentBadge status={order.paymentStatus} />
-        </div>
-        <p>Thanks, {order.customerName}. The cafe has your order.</p>
+      <main className="receipt order-bill order-bill-compact" role="status">
+        <header className="order-bill-head">
+          <div className="order-bill-status">
+            <div className="placed-mark order-bill-mark" aria-hidden="true">
+              <svg viewBox="0 0 72 72">
+                <circle className="placed-ring" cx="36" cy="36" r="32" />
+                <path className="placed-check" d="M22 37.5 32 47.5 51 26" />
+              </svg>
+            </div>
+            <div>
+              <p className="order-bill-kicker">{statusMessage(order.status)}</p>
+              <p className="order-bill-meta">Thanks, {order.customerName}</p>
+            </div>
+          </div>
+          <div className="badge-row order-bill-badges">
+            <StatusBadge status={order.status} />
+            <PaymentBadge status={order.paymentStatus} />
+          </div>
+        </header>
         <ul className="receipt-lines">
           {order.items.map((item) => (
             <li key={item.id}>

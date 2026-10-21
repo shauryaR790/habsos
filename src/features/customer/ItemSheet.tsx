@@ -4,6 +4,7 @@ import { formatINR } from '../../../shared/domain';
 import { Drawer } from '../../components/Drawer';
 import { TextArea } from '../../components/Input';
 import type { Bootstrap } from './cart';
+import { menuItemImageProps } from './ad/menuItemImage';
 import { atLeastThree, IngredientLine, itemMenuDisplay } from './menuFacts';
 
 type Stage = 'peek' | 'make';
@@ -14,15 +15,21 @@ export function ItemSheet({
   initial,
   onClose,
   onSave,
+  mobileAd = false,
 }: {
   item: MenuItem;
   catalog: Bootstrap;
   initial?: { quantity: number; addonIds: string[]; notes: string };
   onClose: () => void;
   onSave: (value: { quantity: number; addonIds: string[]; notes: string }) => void;
+  /** Guest mobile menu — peek sheet styling + scroll lock. */
+  mobileAd?: boolean;
 }) {
   const groups = catalog.addonGroups.filter((group) => item.addonGroupIds.includes(group.id));
-  const [stage, setStage] = useState<Stage>(initial || groups.length ? 'make' : 'peek');
+  const [stage, setStage] = useState<Stage>(() => {
+    if (mobileAd && !initial) return 'peek';
+    return initial || groups.length ? 'make' : 'peek';
+  });
   const [quantity, setQuantity] = useState(initial?.quantity ?? 1);
   const [selected, setSelected] = useState<string[]>(initial?.addonIds ?? []);
   const [notes, setNotes] = useState(initial?.notes ?? '');
@@ -137,10 +144,15 @@ export function ItemSheet({
     .flatMap((group) => group.addons.filter((addon) => selected.includes(addon.id)).map((addon) => addon.name))
     .join(' · ');
 
+  const goFromPeek = () => {
+    if (groups.length) setStage('make');
+    else save();
+  };
+
   const footer = stage === 'peek' ? (
-    <button type="button" className="pay-bar" onClick={() => setStage('make')}>
+    <button type="button" className="pay-bar" onClick={goFromPeek} disabled={Boolean(preview.error) || leaving}>
       <span>Add Item</span>
-      <span>{formatINR(item.price)}</span>
+      <span>{formatINR(preview.total ?? item.price)}</span>
     </button>
   ) : (
     <button type="button" className="pay-bar" disabled={Boolean(preview.error)} onClick={save}>
@@ -151,7 +163,7 @@ export function ItemSheet({
 
   return (
     <Drawer
-      className={`item-flow ${stage === 'peek' ? 'peek-sheet' : 'make-sheet'}${leaving ? ' is-leaving' : ''}`}
+      className={`item-flow${mobileAd ? ' ad-item-sheet' : ''} ${stage === 'peek' ? 'peek-sheet' : 'make-sheet'}${leaving ? ' is-leaving' : ''}`}
       open
       chrome={false}
       title={item.name}
@@ -162,7 +174,11 @@ export function ItemSheet({
         <article className="peek">
           <div className="peek-hero">
             <button type="button" className="peek-cancel" onClick={dismiss}>Cancel</button>
-            {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <span className="peek-fallback" />}
+            {item.imageUrl ? (
+              <img src={item.imageUrl} alt="" {...menuItemImageProps(item.id, 'hero')} />
+            ) : (
+              <span className="peek-fallback" />
+            )}
           </div>
           <div className="peek-body">
             <p className={item.isVeg ? 'diet veg' : 'diet nonveg'}>
@@ -194,7 +210,9 @@ export function ItemSheet({
               <button type="button" className="make-back" onClick={dismiss} aria-label="Back">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </button>
-              {item.imageUrl ? <img src={item.imageUrl} alt="" /> : null}
+              {item.imageUrl ? (
+                <img src={item.imageUrl} alt="" {...menuItemImageProps(item.id, 'hero')} />
+              ) : null}
               <div className="make-veil" />
               <div className="make-copy">
                 <div className="make-endrow">

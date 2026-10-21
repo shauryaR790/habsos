@@ -1,11 +1,12 @@
 import { lazy, Suspense, useLayoutEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingState } from './components/LoadingState';
 import { ToastHost } from './components/Toast';
 import { CartProvider } from './features/customer/cart';
 import { CartPage } from './features/customer/CartPage';
 import { CheckoutPage } from './features/customer/CheckoutPage';
+import { HeroPage } from './features/customer/HeroPage';
 import { MenuPage } from './features/customer/MenuPage';
 import { OrderPage } from './features/customer/OrderPage';
 import { TableQrPage } from './features/customer/TableQrPage';
@@ -41,7 +42,7 @@ export function App() {
         <ToastHost />
         <CartProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/menu" replace />} />
+            <Route path="/" element={<HeroPage />} />
             <Route path="/menu" element={<MenuPage />} />
             <Route path="/qr/:code" element={<TableQrPage />} />
             <Route path="/cart" element={<CartPage />} />
