@@ -7,7 +7,6 @@ import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { LoadingState } from '../../components/LoadingState';
 import { PaymentBadge } from '../../components/PaymentBadge';
-import { StatusBadge } from '../../components/StatusBadge';
 import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { pushToast } from '../../components/Toast';
 export function OrderPage() {
@@ -65,12 +64,19 @@ export function OrderPage() {
   }
 
   return (
-    <div className="guest order-screen ad-guest-order">
-      <header className="guest-bar order-top-bar">
-        <p className="wordmark">Order #{order.orderNumber}</p>
+    <div className="guest guest-flow-compact order-screen ad-guest-order">
+      <header className="order-placed-head" role="status">
+        <h1 className="order-placed-title ad-hero-title">Order placed</h1>
+        <p className="order-placed-sub">
+          #{order.orderNumber}
+          {order.tableName ? ` · Table ${order.tableName}` : ''}
+        </p>
       </header>
-      <main className="receipt order-bill order-bill-compact" role="status">
-        <header className="order-bill-head">
+      <div className="order-stage">
+        <div className="order-ticket-wrap">
+        <main className="receipt order-bill order-bill-compact order-bill-ticket" aria-label="Order receipt">
+        <div className="order-ticket-perf" aria-hidden="true" />
+        <header className="order-bill-head order-ticket-head">
           <div className="order-bill-status">
             <div className="placed-mark order-bill-mark" aria-hidden="true">
               <svg viewBox="0 0 72 72">
@@ -80,11 +86,13 @@ export function OrderPage() {
             </div>
             <div>
               <p className="order-bill-kicker">{statusMessage(order.status)}</p>
-              <p className="order-bill-meta">Thanks, {order.customerName}</p>
+              <p className="order-bill-meta">
+                Thanks, {order.customerName}
+                {order.tableName ? ` · Table ${order.tableName}` : ''}
+              </p>
             </div>
           </div>
           <div className="badge-row order-bill-badges">
-            <StatusBadge status={order.status} />
             <PaymentBadge status={order.paymentStatus} />
           </div>
         </header>
@@ -106,7 +114,7 @@ export function OrderPage() {
           <div><dt>Tax</dt><dd>{formatINR(order.tax)}</dd></div>
           <div className="grand"><dt>Total</dt><dd>{formatINR(order.total)}</dd></div>
         </dl>
-        <section>
+        <section className="order-bill-updates">
           <h2>Updates</h2>
           <ol className="timeline">
             {order.events.map((event) => (
@@ -118,7 +126,25 @@ export function OrderPage() {
           </ol>
         </section>
         {error ? <p className="field-error">{error}</p> : null}
-      </main>
+        </main>
+        </div>
+      </div>
+      <div className="order-cookie-stage" aria-hidden="true">
+        <div className="cart-empty-cookie-deco">
+          <div className="cart-empty-orbit">
+            <div className="cart-empty-orbit-spin">
+              <img
+                className="cart-empty-cookie"
+                src="/items/380246da263c0bed37b936b3e48da5c6-removebg-preview.png"
+                alt=""
+                width={640}
+                height={640}
+                decoding="async"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
       {order.paymentStatus === 'UNPAID' && razorpayKeyId && order.status !== 'OTP_PENDING' && order.status !== 'CANCELLED' ? (
         <button
           type="button"

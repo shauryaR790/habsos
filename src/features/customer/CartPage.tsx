@@ -2,23 +2,46 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../../components/Modal';
 import { TableScanner } from './TableScanner';
-import { formatINR, taxLabel } from '../../../shared/domain';
+import { formatINR, taxLabel, type MenuItem } from '../../../shared/domain';
 import { api } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { CartItem } from '../../components/CartItem';
 import { ItemSheet } from './ItemSheet';
 import { useCart, type Bootstrap } from './cart';
 import { GuestHeader } from './GuestHeader';
+import { CartEmptyCarousel } from './CartEmptyCarousel';
+function canQuickAdd(item: MenuItem, catalog: Bootstrap) {
+  const groups = item.addonGroupIds
+    .map((id) => catalog.addonGroups.find((group) => group.id === id))
+    .filter((group) => group !== undefined);
+  return groups.every((group) => group.minSelect === 0);
+}
+
 export function CartPage() {
   useTitle('Cart');
   const cart = useCart();
   const [editing, setEditing] = useState<string | null>(null);
+  const [pickingId, setPickingId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [search, setSearch] = useState('');
   const tax = cart.catalog?.cafe.taxBps ?? 500;
   const editingLine = cart.lines.find((line) => line.lineId === editing) ?? null;
   const editingItem = cart.catalog?.items.find((item) => item.id === editingLine?.menuItemId) ?? null;
+  const pickingItem = cart.catalog?.items.find((item) => item.id === pickingId) ?? null;
   const menuHref = `/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`;
+
+  const openMenuItem = useCallback((item: MenuItem) => {
+    setPickingId(item.id);
+  }, []);
+
+  const addMenuItem = useCallback((item: MenuItem) => {
+    if (!cart.catalog) return;
+    if (canQuickAdd(item, cart.catalog)) {
+      cart.addLine({ menuItemId: item.id, quantity: 1, addonIds: [], notes: '' });
+      return;
+    }
+    setPickingId(item.id);
+  }, [cart]);
 
   useEffect(() => {
     if (cart.catalog) return;
@@ -45,7 +68,7 @@ export function CartPage() {
   const empty = cart.lines.length === 0;
 
   return (
-    <div className={`guest cart-screen ad-guest-cart${empty ? ' cart-screen-empty' : ''}`}>
+    <div className={`guest guest-flow-compact cart-screen ad-guest-cart${empty ? ' cart-screen-empty' : ''}`}>
       <div className="guest-desktop-head">
         <GuestHeader
           brand={cart.catalog?.cafe.name ?? 'After Dunes'}
@@ -72,12 +95,17 @@ export function CartPage() {
           </header>
           {empty ? (
             <div className="cart-empty-stack">
-              <div className="cart-empty">
-                <div className="cart-empty-sticker">
-                  <img src="/ad/brew-sticker-1.png" alt="" width={220} height={220} decoding="async" />
-                </div>
-                <h2>Nothing in the bag</h2>
-              </div>
+              <h1 className="cart-empty-title ad-hero-title">
+                <span className="ad-hero-title-row">Nothing in</span>
+                <span className="ad-hero-title-line">the bag</span>
+              </h1>
+              {cart.catalog ? (
+                <CartEmptyCarousel
+                  items={cart.catalog.items}
+                  onOpenItem={openMenuItem}
+                  onAddItem={addMenuItem}
+                />
+              ) : null}
             </div>
           ) : (
             <div className="cart-list">
@@ -125,9 +153,39 @@ export function CartPage() {
         ) : null}
       </div>
       {empty ? (
-        <Link className="pay-bar cart-empty-foot" to={menuHref}>
-          <span>Browse menu</span>
-        </Link>
+        <>
+          <div className="cart-empty-stage" aria-hidden="true">
+            <div className="cart-empty-cookie-deco">
+              <div className="cart-empty-orbit">
+                <div className="cart-empty-orbit-spin">
+                  <img
+                    className="cart-empty-cookie"
+                    src="/items/380246da263c0bed37b936b3e48da5c6-removebg-preview.png"
+                    alt=""
+                    width={640}
+                    height={640}
+                    decoding="async"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <Link className="pay-bar cart-empty-foot" to={menuHref}>
+            <span>Browse menu</span>
+          </Link>
+        </>
+      ) : null}
+      {pickingItem && cart.catalog ? (
+        <ItemSheet
+          mobileAd
+          item={pickingItem}
+          catalog={cart.catalog}
+          onClose={() => setPickingId(null)}
+          onSave={(value) => {
+            cart.addLine({ menuItemId: pickingItem.id, ...value });
+            setPickingId(null);
+          }}
+        />
       ) : null}
       {editingItem && editingLine && cart.catalog ? (
         <ItemSheet

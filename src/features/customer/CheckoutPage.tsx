@@ -72,7 +72,7 @@ export function CheckoutPage() {
 
   if (!cart.tableCode || cart.lines.length === 0) {
     return (
-      <div className="guest cart-screen checkout-screen ad-guest-cart checkout-screen-empty">
+      <div className="guest guest-flow-compact cart-screen checkout-screen ad-guest-cart checkout-screen-empty cart-screen-empty">
         <div className="guest-desktop-head">
           <GuestHeader
             brand={cart.catalog?.cafe.name ?? 'After Dunes'}
@@ -94,17 +94,16 @@ export function CheckoutPage() {
         <main className="guest-main checkout-main">
           <div className="cart-empty-stack">
             <div className="cart-empty">
-              <h1>Nothing to check out</h1>
-              <p>Your cart is empty, or this visit has no table QR.</p>
+              <div className="cart-empty-sticker">
+                <img src="/ad/brew-sticker-1.png" alt="" width={220} height={220} decoding="async" />
+              </div>
+              <h2>Nothing to check out</h2>
             </div>
-            <Link className="pay-bar cart-desktop-cta cart-empty-cta" to={menuHref}>
-              <span>Back to menu</span>
-              <span className="pay-go" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </span>
-            </Link>
           </div>
         </main>
+        <Link className="pay-bar cart-empty-foot" to={menuHref}>
+          <span>Back to menu</span>
+        </Link>
         <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
           {scanning ? <TableScanner onTable={onTable} /> : null}
         </Modal>
@@ -239,7 +238,7 @@ export function CheckoutPage() {
   );
 
   return (
-    <div className={`guest cart-screen checkout-screen ad-guest-cart${otp ? ' checkout-screen-otp' : ''}`}>
+    <div className={`guest guest-flow-compact cart-screen checkout-screen ad-guest-cart${otp ? ' checkout-screen-otp' : ''}`}>
       <div className="guest-desktop-head">
         <GuestHeader
           brand={cart.catalog?.cafe.name ?? 'After Dunes'}
@@ -282,21 +281,27 @@ export function CheckoutPage() {
           </header>
           {otp ? (
             <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
-              <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p>
-              <h1>The table is waiting</h1>
-              <p className="otp-lead">A 6-digit code is on its way to</p>
-              <p className="otp-phone">{maskMobile(otp.mobile)}</p>
-              <OtpBoxes value={code} onChange={fillCode} />
-              {otp.devCode ? (
-                <button type="button" className="otp-dev" onClick={() => fillCode(otp.devCode ?? '')}>
-                  Tap to fill {otp.devCode}
+              <div className="otp-core">
+                <h1>The table is waiting</h1>
+                <p className="otp-kicker">
+                  Six digits to <span className="otp-phone">{maskMobile(otp.mobile)}</span>
+                </p>
+                <OtpBoxes value={code} onChange={fillCode} />
+                {otp.devCode ? (
+                  <button type="button" className="otp-dev" onClick={() => fillCode(otp.devCode ?? '')}>
+                    Tap to fill {otp.devCode}
+                  </button>
+                ) : null}
+                {error ? <p className="field-error" role="alert">{error}</p> : null}
+                <button type="button" className="otp-resend" disabled={wait > 0 || busy} onClick={() => void resend()}>
+                  {wait > 0 ? `New code in ${wait}s` : 'Send another code'}
                 </button>
-              ) : null}
-              <button type="button" className="otp-resend" disabled={wait > 0 || busy} onClick={() => void resend()}>
-                {wait > 0 ? `Resend in ${wait}s` : 'Send a new code'}
-              </button>
-              {error ? <p className="field-error" role="alert">{error}</p> : null}
-              {cart.totals ? <p className="otp-total">Then we send {formatINR(cart.totals.total)} to the kitchen</p> : null}
+              </div>
+              <div className="otp-mural" aria-hidden="true">
+                <img className="otp-mural-sticker" src="/ad/hero-sticker-nametag.png" alt="" width={158} height={158} decoding="async" />
+                <img className="otp-mural-sticker otp-mural-sticker--brew" src="/ad/brew-sticker-1.png" alt="" width={220} height={220} decoding="async" />
+                <img className="otp-mural-sticker" src="/ad/hero-sticker-heart.png" alt="" width={118} height={118} decoding="async" />
+              </div>
               <button
                 type="submit"
                 className="pay-bar checkout-desktop-cta"
@@ -314,7 +319,9 @@ export function CheckoutPage() {
                 <h2>Who’s at the table</h2>
                 <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
                 <Input label="Mobile number" value={mobile} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile" onChange={(event) => setMobile(event.target.value)} />
-                <Input label="Address" value={address} onChange={(event) => setAddress(event.target.value)} />
+                <div className="check-guest-optional">
+                  <Input label="Address" value={address} onChange={(event) => setAddress(event.target.value)} />
+                </div>
                 <label className="field">
                   <span>Payment method</span>
                   <select
