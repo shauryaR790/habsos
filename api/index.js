@@ -371,8 +371,8 @@ function migrate(database) {
   addColumn(database, "menu_items", "ingredients_json", "TEXT NOT NULL DEFAULT '[]'");
   const userVersion = database.prepare("PRAGMA user_version").get().user_version;
   if (userVersion < 2) {
-    database.exec("DELETE FROM customers");
     database.exec("UPDATE orders SET customer_id = NULL");
+    database.exec("DELETE FROM customers");
     database.exec("PRAGMA user_version = 2");
   }
 }
@@ -2971,8 +2971,8 @@ function listOrders() {
   return hydrate(rows);
 }
 function clearAllCustomers() {
-  run("DELETE FROM customers WHERE cafe_id = ?", [CAFE_ID]);
   run("UPDATE orders SET customer_id = NULL WHERE cafe_id = ?", [CAFE_ID]);
+  run("DELETE FROM customers WHERE cafe_id = ?", [CAFE_ID]);
 }
 function listCustomers() {
   return all(

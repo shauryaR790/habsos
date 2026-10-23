@@ -1570,8 +1570,8 @@ export function listOrders() {
 }
 
 export function clearAllCustomers() {
-  run('DELETE FROM customers WHERE cafe_id = ?', [CAFE_ID]);
   run('UPDATE orders SET customer_id = NULL WHERE cafe_id = ?', [CAFE_ID]);
+  run('DELETE FROM customers WHERE cafe_id = ?', [CAFE_ID]);
 }
 
 export function listCustomers(): CustomerSummary[] {

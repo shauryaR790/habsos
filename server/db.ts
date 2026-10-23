@@ -276,8 +276,8 @@ function migrate(database: DatabaseSync) {
   addColumn(database, 'menu_items', 'ingredients_json', "TEXT NOT NULL DEFAULT '[]'");
   const userVersion = (database.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   if (userVersion < 2) {
-    database.exec('DELETE FROM customers');
     database.exec('UPDATE orders SET customer_id = NULL');
+    database.exec('DELETE FROM customers');
     database.exec('PRAGMA user_version = 2');
   }
 }
