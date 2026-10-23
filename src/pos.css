@@ -1,8 +1,7 @@
 /*
-  After Dunes register — Petpooja operational POS.
+  After Dunes register — demo POS (guest palette: sand, olive, cactus, coffee, amber).
 
-  White/light-grey workspace, thin borders, strong red actions, compact type.
-  Scoped to .pos / .login so the customer site keeps sand-and-green.
+  Scoped to .pos / .login so the customer site keeps its own tokens.
 
   Default UI density matches ~125% browser zoom (demo / counter readability).
 */
@@ -11,23 +10,29 @@
 .pos,
 .login {
   zoom: 1.25;
-  --ink: #212121;
-  --paper: #fff;
-  --fill: #f5f5f5;
-  --fill-2: #eeeeee;
-  --hair: #e0e0e0;
-  --rule: #d0d0d0;
-  --muted: #616161;
-  --faint: #9e9e9e;
-  --link: #d32f2f;
-  --link-hover: #b71c1c;
-  --link-tint: #fdeaea;
-  --good: #2e7d32;
-  --good-tint: #e8f5e9;
-  --bad: #d32f2f;
-  --bad-tint: #fdeaea;
-  --warn-tint: #fff8e1;
-  --warn-edge: #fbc02d;
+  --ad-sand: #efedd4;
+  --ad-olive: #3f4222;
+  --ad-cactus: #7a8450;
+  --ad-coffee: #512c1a;
+  --ad-amber: #a76334;
+  --ad-clay: #8f351d;
+  --ink: #2a1c12;
+  --paper: #fffaf4;
+  --fill: #f3eed8;
+  --fill-2: #ebe6cf;
+  --hair: #ddd8c4;
+  --rule: #c9c4ad;
+  --muted: #6b5a48;
+  --faint: #9a8878;
+  --link: var(--ad-cactus);
+  --link-hover: #6a7344;
+  --link-tint: rgba(122, 132, 80, 0.14);
+  --good: var(--ad-cactus);
+  --good-tint: rgba(122, 132, 80, 0.12);
+  --bad: var(--ad-clay);
+  --bad-tint: rgba(143, 53, 29, 0.1);
+  --warn-tint: rgba(167, 99, 52, 0.12);
+  --warn-edge: var(--ad-amber);
 
   --bg: var(--paper);
   --surface: var(--paper);
@@ -52,7 +57,7 @@
 }
 
 html:has(.pos), body:has(.pos),
-html:has(.login), body:has(.login) { background: #fff; }
+html:has(.login), body:has(.login) { background: var(--ad-sand, #efedd4); }
 
 /* Toasts mount outside the register tree, so they are matched from the body. */
 body:has(.pos) .toast, body:has(.login) .toast {
@@ -69,15 +74,14 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 
 .order-alerts {
   position: fixed;
-  top: 76px;
-  left: 50%;
+  right: 16px;
+  bottom: 16px;
   z-index: 120;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   width: min(360px, calc(100vw - 32px));
-  transform: translateX(-50%);
   pointer-events: none;
 }
 .order-alert {
@@ -123,7 +127,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   font-variant-numeric: tabular-nums;
 }
 @keyframes order-alert-in {
-  from { opacity: 0; transform: translateY(-18px) scale(0.94); }
+  from { opacity: 0; transform: translateY(18px) scale(0.94); }
   to { opacity: 1; transform: none; }
 }
 
@@ -986,15 +990,67 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 .login {
   height: var(--pos-viewport, calc(100dvh / 1.25));
   max-height: var(--pos-viewport, calc(100dvh / 1.25));
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   padding: 24px;
-  background: #fff;
+  background: var(--ad-sand, #efedd4);
   overflow: auto;
 }
-.login form { width: min(380px, 100%); border: 1px solid var(--rule); border-radius: 2px; background: var(--fill); padding: 24px; display: grid; gap: 14px; box-shadow: none; }
-.login .eyebrow { font-family: var(--font); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 0.875rem; color: var(--muted); }
-.login h1 { font-size: 2rem; line-height: 1.2; margin-bottom: 0; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+.login form,
+.login-pin,
+.login-advanced {
+  width: min(380px, 100%);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+  padding: 24px;
+  display: grid;
+  gap: 14px;
+  box-shadow: 0 8px 28px rgba(42, 28, 18, 0.08);
+}
+.login .eyebrow {
+  font-family: "Bodoni Moda", Georgia, serif;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 1rem;
+  color: var(--ad-amber);
+}
+.login h1 {
+  font-family: Anton, "Roboto Condensed", sans-serif;
+  font-size: 2rem;
+  line-height: 1.1;
+  margin-bottom: 0;
+  color: var(--ad-olive);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.login-demo-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.login-advanced-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--ad-coffee);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  padding: 0;
+  justify-self: start;
+}
+.login-foot {
+  width: min(380px, 100%);
+  text-align: center;
+  margin: 0;
+}
 .login .fine { font-size: 0.85rem; color: var(--muted); line-height: 1.45; }
 
 /* ---------------------------------------------------------- responsive */
@@ -1032,8 +1088,8 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   gap: 10px;
   min-height: 56px;
   padding: 6px 10px 6px 8px;
-  background: #fff;
-  border-bottom: 1px solid #eee;
+  background: var(--ad-sand, #efedd4);
+  border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
   z-index: 8;
   overflow-x: auto;
@@ -1053,7 +1109,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   flex-shrink: 0;
 }
 .pos-burger:hover,
-.pos-power:hover { background: #f5f5f5; color: #d32f2f; }
+.pos-power:hover { background: var(--link-tint); color: var(--ad-coffee); }
 .pos-logo {
   display: flex;
   align-items: center;
@@ -1067,7 +1123,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   font-weight: 600;
   font-size: 22px;
   line-height: 1;
-  color: #e53935;
+  color: var(--ad-coffee);
   letter-spacing: -0.03em;
   white-space: nowrap;
 }
@@ -1077,16 +1133,16 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   justify-content: center;
   min-height: 34px;
   padding: 0 14px;
-  background: #e53935;
+  background: var(--ad-cactus);
   color: #fff !important;
   text-decoration: none;
   font-weight: 700;
   font-size: 13px;
-  border-radius: 4px;
+  border-radius: 8px;
   white-space: nowrap;
   flex-shrink: 0;
 }
-.pos-new:hover { background: #c62828; }
+.pos-new:hover { background: var(--link-hover); }
 .pos-bill-find {
   margin: 0;
   min-width: 0;
@@ -1164,8 +1220,8 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 .pos-tools button:hover { background: #f5f5f5; color: #e53935; }
 .pos-tools a.on,
 .pos-tools button.on {
-  background: #ffebee;
-  color: #c62828;
+  background: var(--link-tint);
+  color: var(--ad-cactus);
 }
 .pos-bell i {
   position: absolute;
@@ -1223,7 +1279,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   border-radius: 4px;
 }
 .pos-navdraw a:hover { background: #f5f5f5; }
-.pos-navdraw a.on { background: #ffebee; color: #c62828; font-weight: 700; }
+.pos-navdraw a.on { background: var(--link-tint); color: var(--ad-coffee); font-weight: 700; }
 
 /* --------------------------------------------------------------- table view */
 
@@ -1260,7 +1316,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   cursor: pointer;
   white-space: nowrap;
 }
-.tv-red { background: #d32f2f; border: 1px solid #d32f2f; color: #fff; }
+.tv-red { background: var(--ad-cactus); border: 1px solid var(--ad-cactus); color: #fff; }
 .tv-red:hover { background: #b71c1c; }
 .tv-ghost { background: #fff; border: 1px solid var(--rule); color: var(--ink); }
 .tv-ghost:hover { background: var(--fill); }
@@ -1549,7 +1605,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 .bill-modes button + button { border-left: 0; }
 .bill-modes button:first-child { border-radius: 2px 0 0 2px; }
 .bill-modes button:last-child { border-radius: 0 2px 2px 0; }
-.bill-modes button.on { background: #d32f2f; border-color: #d32f2f; color: #fff; }
+.bill-modes button.on { background: var(--ad-cactus); border-color: var(--ad-cactus); color: #fff; }
 .bill-search input, .bill-short input, .bill-table select {
   min-height: 32px;
   border: 1px solid var(--rule);
@@ -1599,7 +1655,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   color: var(--ink);
   cursor: pointer;
 }
-.bill-cats button.on { background: #d32f2f; color: #fff; font-weight: 700; }
+.bill-cats button.on { background: var(--ad-cactus); color: #fff; font-weight: 700; }
 .bill-cats button:hover:not(.on) { background: #eeeeee; }
 .bill-grid {
   display: grid;
@@ -1807,7 +1863,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   align-items: stretch;
   gap: 8px;
   padding: 8px 10px 10px;
-  background: #424242;
+  background: var(--ad-olive);
   color: #fff;
   flex: 0 0 auto;
   z-index: 4;
@@ -1833,13 +1889,17 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   min-height: 30px;
   padding: 0 10px;
   border: 0;
-  background: #d32f2f;
+  background: var(--ad-cactus);
   color: #fff;
   font: inherit;
   font-weight: 700;
   font-size: 12px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 6px;
+}
+.bill-offers button.is-on {
+  background: var(--ad-amber);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 .bill-pay label,
 .bill-flags label {
@@ -1849,7 +1909,7 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   font-size: 12px;
 }
 .bill-pay input,
-.bill-flags input { accent-color: #d32f2f; }
+.bill-flags input { accent-color: var(--ad-cactus); }
 .bill-total {
   margin-left: auto;
   background: transparent;
@@ -1858,12 +1918,12 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   text-align: right;
 }
 .bill-total span { display: block; font-size: 11px; color: #bdbdbd; }
-.bill-total strong { font-size: 28px; line-height: 1; color: #ff6d00; font-variant-numeric: tabular-nums; }
+.bill-total strong { font-size: 28px; line-height: 1; color: #f5e6c8; font-variant-numeric: tabular-nums; }
 .bill-acts .act {
   min-height: 34px;
   padding: 6px 6px;
   border: 0;
-  background: #d32f2f;
+  background: var(--ad-cactus);
   color: #fff;
   font: inherit;
   font-weight: 700;
@@ -1878,8 +1938,10 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   white-space: nowrap;
 }
 .bill-acts .act:disabled { opacity: 0.45; cursor: not-allowed; }
-.bill-acts .act.ghost { background: #757575; }
-.bill-tax { width: 100%; margin: 0; font-size: 11px; color: #bdbdbd; }
+.bill-acts .act.ghost { background: var(--ad-coffee); }
+.bill-acts .act.kot { background: var(--ad-amber); }
+.bill-tax { width: 100%; margin: 0; font-size: 11px; color: rgba(255, 255, 255, 0.72); line-height: 1.45; }
+.bill-tax .bill-tax-discount { color: #f5d4a8; }
 
 @media (max-width: 520px) {
   .bill-acts { grid-template-columns: repeat(3, minmax(0, 1fr)); }

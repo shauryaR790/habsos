@@ -14,6 +14,7 @@ import { AdBottomNav } from './ad/AdBottomNav';
 import { AdMobileShell } from './ad/AdMobileShell';
 import { AdProductCard } from './ad/AdProductCard';
 import { brewCardStickerForIndex } from './ad/brewCardStickers';
+import { useGuestMenuItemDeepLink } from './guestOpenItemLink';
 
 type MenuPageMobileProps = {
   /** Menu block on the single-page mobile landing (hero + menu scroll). */
@@ -117,6 +118,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
   }, [landingSection, menuSectionId, navigate]);
 
   const catalog = cart.catalog;
+  useGuestMenuItemDeepLink(catalog, setSheet);
   const sheetItem = catalog?.items.find((item) => item.id === sheet?.itemId) ?? null;
   const available = catalog?.items.filter((item) => item.isAvailable) ?? [];
 
@@ -156,7 +158,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
             <>
               {dailyBrew.length ? (
                 <section className="ad-brew-section" aria-labelledby="ad-brew-daily">
-                  <h2 id="ad-brew-daily" className="ad-brew-heading">Daily Brew</h2>
+                  <h2 id="ad-brew-daily" className="ad-brew-heading">Desert brews</h2>
                   <div className="ad-brew-grid">
                     {dailyBrew.map((item, index) => (
                       <AdProductCard
@@ -171,11 +173,17 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
                 </section>
               ) : null}
               <section className="ad-brew-section" aria-labelledby="ad-brew-explore">
-                <h2 id="ad-brew-explore" className="ad-brew-heading">Explore More</h2>
+                <h2 id="ad-brew-explore" className="ad-brew-heading">The souk</h2>
                 {exploreMenu.length ? (
                   <div className="ad-brew-grid">
-                    {exploreMenu.map((item) => (
-                      <AdProductCard key={item.id} item={item} onOpen={openItem} onAddToCart={openItem} />
+                    {exploreMenu.map((item, index) => (
+                      <AdProductCard
+                        key={item.id}
+                        item={item}
+                        onOpen={openItem}
+                        onAddToCart={openItem}
+                        cornerSticker={brewCardStickerForIndex(index + dailyBrew.length)}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -185,14 +193,13 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
             </>
           ) : null}
         </main>
-        {(!landingSection || landingNavVisible) && !sheetItem ? (
-          <AdBottomNav
-            active="menu"
-            cartTotal={cart.totals?.total ?? null}
-            cartCount={cart.count}
-            menuAnchor={landingSection ? `#${menuSectionId}` : undefined}
-          />
-        ) : null}
+        <AdBottomNav
+          active="menu"
+          cartTotal={cart.totals?.total ?? null}
+          cartCount={cart.count}
+          menuAnchor={landingSection ? `#${menuSectionId}` : undefined}
+          visible={!sheetItem && (!landingSection || landingNavVisible)}
+        />
       </AdMobileShell>
   );
 

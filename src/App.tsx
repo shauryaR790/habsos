@@ -6,6 +6,7 @@ import { ToastHost } from './components/Toast';
 import { CartProvider } from './features/customer/cart';
 import { CartPage } from './features/customer/CartPage';
 import { CheckoutPage } from './features/customer/CheckoutPage';
+import { GuestExperienceLayout } from './features/customer/GuestExperienceLayout';
 import { HeroPage } from './features/customer/HeroPage';
 import { MenuPage } from './features/customer/MenuPage';
 import { OrderPage } from './features/customer/OrderPage';
@@ -42,11 +43,13 @@ export function App() {
         <ToastHost />
         <CartProvider>
           <Routes>
-            <Route path="/" element={<HeroPage />} />
-            <Route path="/menu" element={<MenuPage />} />
             <Route path="/qr/:code" element={<TableQrPage />} />
-            <Route path="/cart" element={<CartPage />} />
-            <Route path="/checkout" element={<CheckoutPage />} />
+            <Route element={<GuestExperienceLayout />}>
+              <Route path="/" element={<HeroPage />} />
+              <Route path="/menu" element={<MenuPage />} />
+              <Route path="/cart" element={<CartPage />} />
+              <Route path="/checkout" element={<CheckoutPage />} />
+            </Route>
             <Route path="/order/:id" element={<OrderPage />} />
             <Route path="/pos/login" element={<LoginPage />} />
             <Route path="/pos/*" element={<Suspense fallback={<div className="login"><LoadingState label="Loading POS" /></div>}><PosShell /></Suspense>} />

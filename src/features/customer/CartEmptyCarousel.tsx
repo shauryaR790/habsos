@@ -22,7 +22,6 @@ export function CartEmptyCarousel({
 
   return (
     <section className="cart-empty-carousel" aria-label="Pick something from the menu">
-      <p className="cart-empty-carousel-kicker">Swipe or tap to add</p>
       <div className="cart-empty-carousel-viewport">
         <div className="cart-empty-carousel-track">
           {loop.map((item, index) => (

@@ -1569,6 +1569,11 @@ export function listOrders() {
   return hydrate(rows);
 }
 
+export function clearAllCustomers() {
+  run('DELETE FROM customers WHERE cafe_id = ?', [CAFE_ID]);
+  run('UPDATE orders SET customer_id = NULL WHERE cafe_id = ?', [CAFE_ID]);
+}
+
 export function listCustomers(): CustomerSummary[] {
   return all<{ id: string; name: string; mobile: string; order_count: number; spent: number; last_order_at: string | null }>(
     `SELECT c.id, c.name, c.mobile, c.last_order_at,

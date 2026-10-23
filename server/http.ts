@@ -48,7 +48,7 @@ import { clearSessionCookie, createSession, destroySession, getSessionUser, read
 import { get } from './db';
 import { dueTotal, OPEN_STATUSES } from '../shared/domain';
 import { exposeDevOtp, isProduction, razorpayEnabled } from './env';
-import { AppError, applySyncBatch, cancelCheckout, cancelReservation, createCustomer, createMenuItem, createReservation, createStaffOrder, createTable, getOrder, listCustomerOrders, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, placeGuestOrder, reassignOrderTable, replaceStaffOrderItems, reportRange, reportToday, resendOtp, setItemGroups, setTableStage, snapshot, splitStaffOrder, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
+import { AppError, applySyncBatch, cancelCheckout, cancelReservation, clearAllCustomers, createCustomer, createMenuItem, createReservation, createStaffOrder, createTable, getOrder, listCustomerOrders, listCustomers, listOrders, listTables, loadCatalog, markPaid, moveMenuItem, placeGuestOrder, reassignOrderTable, replaceStaffOrderItems, reportRange, reportToday, resendOtp, setItemGroups, setTableStage, snapshot, splitStaffOrder, startCheckout, transitionOrder, updateAddon, updateCategory, updateMenuItem, updateSettings, updateTable, verifyCheckout } from './logic';
 import { createRazorpayOrder, publicRazorpayKey, RazorpayError, verifyRazorpayPayment } from './razorpay';
 import { otpProvider } from './otp';
 import { openStream, touchDevice } from './realtime';
@@ -420,6 +420,11 @@ app.patch('/api/orders/:id/table', requireAuth, wrap((req, res) => {
 
 app.get('/api/customers', requireAuth, wrap((_req, res) => {
   res.json({ customers: listCustomers() });
+}));
+
+app.delete('/api/customers', requireAuth, wrap((_req, res) => {
+  clearAllCustomers();
+  res.json({ ok: true, customers: listCustomers() });
 }));
 
 app.post('/api/customers', requireAuth, wrap((req, res) => {

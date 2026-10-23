@@ -1,36 +1,29 @@
 import { useCallback, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTitle } from '../../lib/useTitle';
+import { useCart } from './cart';
+import { AdGuestHeroNav } from './ad/AdGuestHeroNav';
 import { AdMobileShell } from './ad/AdMobileShell';
 import { MenuPageMobile } from './MenuPageMobile';
 
-export const GUEST_MENU_SECTION_ID = 'order-menu';
+import { GUEST_MENU_SECTION_ID } from './guestLandingConstants';
+import { readMenuScroll, saveMenuScroll } from './guestMenuScroll';
+
+export { GUEST_MENU_SECTION_ID };
 
 type Props = {
   /** When opening /menu on mobile, scroll down to the menu block. */
   scrollToMenuOnMount?: boolean;
+  /** Persist scroll position while browsing (off when landing is frozen under a drawer). */
+  trackScroll?: boolean;
 };
 
-export function GuestMobileLanding({ scrollToMenuOnMount = false }: Props) {
+export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = true }: Props) {
   useTitle('After Dunes');
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const table = params.get('table');
-  const menuTo = table ? `/menu?table=${encodeURIComponent(table)}` : '/menu';
+  const cart = useCart();
 
   const scrollToMenu = useCallback(() => {
     document.getElementById(GUEST_MENU_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    if (mq.matches) navigate(menuTo, { replace: true });
-    const onChange = () => {
-      if (mq.matches) navigate(menuTo, { replace: true });
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [menuTo, navigate]);
 
   useEffect(() => {
     if (!scrollToMenuOnMount) return;
@@ -44,8 +37,39 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false }: Props) {
     return () => window.cancelAnimationFrame(id);
   }, [scrollToMenu]);
 
+  useEffect(() => {
+    if (scrollToMenuOnMount || !trackScroll) return;
+    const y = readMenuScroll();
+    if (y <= 0) return;
+    const id = window.requestAnimationFrame(() => window.scrollTo(0, y));
+    return () => window.cancelAnimationFrame(id);
+  }, [scrollToMenuOnMount, trackScroll]);
+
+  useEffect(() => {
+    if (!trackScroll) return;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        saveMenuScroll();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [trackScroll]);
+
   return (
-    <div className="ad-app ad-guest-landing">
+    <>
+      <AdGuestHeroNav
+        cartCount={cart.count}
+        tone="hero"
+        tableCode={cart.tableCode}
+      />
+      <div className="ad-app ad-guest-landing ad-guest-page">
       <a className="skip" href={`#${GUEST_MENU_SECTION_ID}`}>Skip to menu</a>
       <section className="ad-hero-panel" aria-label="Welcome">
         <AdMobileShell className="ad-viewport--hero">
@@ -98,8 +122,8 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false }: Props) {
           </div>
         </AdMobileShell>
       </section>
-      <div className="ad-hero-menu-chequer" aria-hidden="true" />
       <MenuPageMobile landingSection menuSectionId={GUEST_MENU_SECTION_ID} />
     </div>
+    </>
   );
 }

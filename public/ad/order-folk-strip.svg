@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24">
+  <!-- Clean seamless folk tile — no stray pixels; repeats every 48px -->
+  <g fill="#EDE6D6">
+    <rect x="22" y="0" width="4" height="24"/>
+    <rect x="14" y="3" width="4" height="4"/>
+    <rect x="18" y="7" width="4" height="4"/>
+    <rect x="10" y="11" width="4" height="4"/>
+    <rect x="14" y="15" width="4" height="4"/>
+    <rect x="18" y="19" width="4" height="4"/>
+    <rect x="26" y="3" width="4" height="4"/>
+    <rect x="30" y="7" width="4" height="4"/>
+    <rect x="34" y="11" width="4" height="4"/>
+    <rect x="30" y="15" width="4" height="4"/>
+    <rect x="26" y="19" width="4" height="4"/>
+    <rect x="-2" y="3" width="4" height="4"/>
+    <rect x="2" y="7" width="4" height="4"/>
+    <rect x="-6" y="11" width="4" height="4"/>
+    <rect x="-2" y="15" width="4" height="4"/>
+    <rect x="2" y="19" width="4" height="4"/>
+    <rect x="46" y="3" width="4" height="4"/>
+    <rect x="42" y="7" width="4" height="4"/>
+    <rect x="50" y="11" width="4" height="4"/>
+    <rect x="46" y="15" width="4" height="4"/>
+    <rect x="42" y="19" width="4" height="4"/>
+  </g>
+</svg>

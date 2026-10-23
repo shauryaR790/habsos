@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatINR, maskMobile, normalizeMobile, taxLabel, type GuestPaymentPreference, type PublicOrder } from '../../../shared/domain';
 import { Modal } from '../../components/Modal';
-import { GuestHeader } from './GuestHeader';
+import { GuestDrawerShell } from './GuestDrawerShell';
+import { OtpVerifyDialog } from './OtpVerifyDialog';
+import { OtpBoxes } from './OtpBoxes';
+import { useGuestDesktop } from './useGuestDesktop';
 import { TableScanner } from './TableScanner';
 import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { api, ApiError } from '../../lib/api';
@@ -26,6 +29,7 @@ export function CheckoutPage() {
   useTitle('Checkout');
   const cart = useCart();
   const navigate = useNavigate();
+  const desktop = useGuestDesktop();
   const clientKey = useRef(crypto.randomUUID());
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
@@ -37,7 +41,6 @@ export function CheckoutPage() {
   const [payPref, setPayPref] = useState<GuestPaymentPreference>('DESK');
   const [address, setAddress] = useState('');
   const [scanning, setScanning] = useState(false);
-  const [search, setSearch] = useState('');
   const tax = cart.catalog?.cafe.taxBps ?? 500;
 
   useEffect(() => {
@@ -72,25 +75,8 @@ export function CheckoutPage() {
 
   if (!cart.tableCode || cart.lines.length === 0) {
     return (
-      <div className="guest guest-flow-compact cart-screen checkout-screen ad-guest-cart checkout-screen-empty cart-screen-empty">
-        <div className="guest-desktop-head">
-          <GuestHeader
-            brand={cart.catalog?.cafe.name ?? 'After Dunes'}
-            active="cart"
-            search={search}
-            onSearch={setSearch}
-            onScan={() => setScanning(true)}
-            cartCount={cart.count}
-            showMenuNav
-          />
-        </div>
-        <header className="guest-bar cart-head guest-bar-mobile-only">
-          <Link className="guest-back" to={menuHref} aria-label="Back to menu">
-            <Chevron />
-            Menu
-          </Link>
-          <p className="wordmark">Checkout</p>
-        </header>
+      <>
+      <div className="guest guest-flow-compact cart-screen checkout-screen ad-guest-cart checkout-screen-empty cart-screen-empty ad-guest-surface-bg">
         <main className="guest-main checkout-main">
           <div className="cart-empty-stack">
             <div className="cart-empty">
@@ -108,6 +94,7 @@ export function CheckoutPage() {
           {scanning ? <TableScanner onTable={onTable} /> : null}
         </Modal>
       </div>
+      </>
     );
   }
 
@@ -237,49 +224,68 @@ export function CheckoutPage() {
     </ul>
   );
 
+  const checkoutFooter = !otp && cart.totals ? (
+    <button
+      type="submit"
+      form="checkout-form"
+      className="pay-bar ad-guest-drawer-checkout"
+      disabled={busy || !cart.totals}
+      aria-busy={busy}
+    >
+      <span>{cart.totals ? formatINR(cart.totals.total) : ''}</span>
+      <span>{busy ? 'Sending code…' : 'Place order'}</span>
+    </button>
+  ) : null;
+
+  const checkoutBill = cart.totals ? (
+    <section className="ad-guest-drawer-bill" aria-label="Bill details">
+      <h2 className="ad-guest-drawer-bill-title">Bill details</h2>
+      <dl>
+        <div><dt>Items total</dt><dd>{formatINR(cart.totals.subtotal)}</dd></div>
+        {cart.totals.discount > 0 ? <div><dt>Discount</dt><dd>−{formatINR(cart.totals.discount)}</dd></div> : null}
+        <div><dt>Tax ({taxLabel(tax)})</dt><dd>{formatINR(cart.totals.tax)}</dd></div>
+        <div className="grand"><dt>Grand total</dt><dd>{formatINR(cart.totals.total)}</dd></div>
+      </dl>
+    </section>
+  ) : null;
+
   return (
-    <div className={`guest guest-flow-compact cart-screen checkout-screen ad-guest-cart${otp ? ' checkout-screen-otp' : ''}`}>
-      <div className="guest-desktop-head">
-        <GuestHeader
-          brand={cart.catalog?.cafe.name ?? 'After Dunes'}
-          active="cart"
-          search={search}
-          onSearch={setSearch}
-          onScan={() => setScanning(true)}
-          cartCount={cart.count}
-          showMenuNav
-        />
-      </div>
-      <header className="guest-bar cart-head guest-bar-mobile-only">
-        {otp ? (
-          <button
-            type="button"
-            className="guest-back"
-            aria-label="Back to details"
-            onClick={() => {
-              setOtp(null);
-              setCode('');
-              setError(null);
-            }}
-          >
-            <Chevron />
-            Back
-          </button>
-        ) : (
-          <Link className="guest-back" to="/cart" aria-label="Back to cart">
-            <Chevron />
-            Cart
-          </Link>
-        )}
-        <p className="wordmark">{otp ? 'Verify' : 'Checkout'}</p>
-      </header>
+    <>
+    {otp && desktop ? (
+      <OtpVerifyDialog
+        mobileLabel={maskMobile(otp.mobile)}
+        code={code}
+        onCodeChange={fillCode}
+        error={error}
+        busy={busy}
+        wait={wait}
+        devCode={otp.devCode}
+        onResend={() => void resend()}
+        onSubmit={(event) => void verify(event)}
+        total={cart.totals?.total ?? null}
+      />
+    ) : null}
+    <GuestDrawerShell
+      title="Checkout"
+      closeTo="/cart"
+      footer={desktop ? checkoutFooter : undefined}
+      panelSurface="desert"
+    >
+    <div
+      className={`guest cart-screen checkout-screen ad-guest-cart ad-guest-desert-bg${
+        desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
+      }${otp && !desktop ? ' checkout-screen-otp' : ''}`}
+    >
       <div className="checkout-layout">
         <main className="guest-main checkout-main">
-          <header className="checkout-page-head">
-            <h1 className="checkout-page-title">{otp ? 'Verify your mobile' : 'Checkout'}</h1>
-            {cart.tableCode ? <p className="checkout-page-meta">Table {cart.tableCode}</p> : null}
-          </header>
-          {otp ? (
+          {!desktop ? (
+            <header className="checkout-page-head">
+              <h1 className="checkout-page-title">{otp ? 'Verify your mobile' : 'Checkout'}</h1>
+              {cart.tableCode ? <p className="checkout-page-meta">Table {cart.tableCode}</p> : null}
+            </header>
+          ) : null}
+          {desktop && cart.tableCode ? <p className="ad-guest-drawer-meta">Table {cart.tableCode}</p> : null}
+          {otp && !desktop ? (
             <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
               <div className="otp-core">
                 <h1>The table is waiting</h1>
@@ -312,9 +318,10 @@ export function CheckoutPage() {
                 {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
               </button>
             </form>
-          ) : (
+          ) : null}
+          {!otp ? (
             <form id="checkout-form" className="check-form" onSubmit={(event) => void start(event)}>
-              <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p>
+              {!desktop ? <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p> : null}
               <section className="check-guest">
                 <h2>Who’s at the table</h2>
                 <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
@@ -338,16 +345,24 @@ export function CheckoutPage() {
                   <p className="fine">Online pay is not configured — you can still order and pay at the desk.</p>
                 ) : null}
               </section>
-              <section className="check-order checkout-order-mobile" aria-label="This order">
-                <h2>This order</h2>
-                {orderList}
-              </section>
+              {!desktop ? (
+                <section className="check-order checkout-order-mobile" aria-label="This order">
+                  <h2>This order</h2>
+                  {orderList}
+                </section>
+              ) : (
+                <section className="check-order ad-guest-drawer-order" aria-label="This order">
+                  <h2 className="ad-guest-drawer-bill-title">This order</h2>
+                  {orderList}
+                </section>
+              )}
+              {desktop ? checkoutBill : null}
               {cart.quoteError ? <p className="field-error">{cart.quoteError}</p> : null}
               {error ? <p className="field-error" role="alert">{error}</p> : null}
             </form>
-          )}
+          ) : null}
         </main>
-        {!otp ? (
+        {!otp && !desktop ? (
           <aside className="checkout-summary" aria-label="Order summary">
             <section className="check-order">
               <h2 className="checkout-summary-title">This order</h2>
@@ -376,61 +391,27 @@ export function CheckoutPage() {
           </aside>
         ) : null}
       </div>
-      <footer className="checkout-dock">
-        {otp ? (
-          <button type="submit" form="otp-form" className="pay-bar" disabled={busy || code.length !== 6} aria-busy={busy}>
-            <span>{busy ? 'Placing order…' : 'Place order'}</span>
-            {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
-          </button>
-        ) : (
-          <button type="submit" form="checkout-form" className="pay-bar" disabled={busy || !cart.totals} aria-busy={busy}>
-            <span>{busy ? 'Sending code…' : 'Place order'}</span>
-            {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
-          </button>
-        )}
-      </footer>
+      {!desktop ? (
+        <footer className="checkout-dock">
+          {otp ? (
+            <button type="submit" form="otp-form" className="pay-bar" disabled={busy || code.length !== 6} aria-busy={busy}>
+              <span>{busy ? 'Placing order…' : 'Place order'}</span>
+              {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
+            </button>
+          ) : (
+            <button type="submit" form="checkout-form" className="pay-bar" disabled={busy || !cart.totals} aria-busy={busy}>
+              <span>{busy ? 'Sending code…' : 'Place order'}</span>
+              {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
+            </button>
+          )}
+        </footer>
+      ) : null}
       <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
         {scanning ? <TableScanner onTable={onTable} /> : null}
       </Modal>
     </div>
+    </GuestDrawerShell>
+    </>
   );
 }
 
-function OtpBoxes({ value, onChange }: { value: string; onChange: (next: string) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-  }, []);
-  return (
-    <div className="otp-boxes" onClick={() => ref.current?.focus()}>
-      <label className="sr-only" htmlFor="otp-code">6-digit code</label>
-      <input
-        id="otp-code"
-        ref={ref}
-        className="otp-hidden"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        maxLength={6}
-        value={value}
-        onChange={(event) => onChange(event.target.value.replace(/\D/g, '').slice(0, 6))}
-      />
-      {Array.from({ length: 6 }, (_, index) => (
-        <span
-          key={index}
-          className={`otp-cell${value[index] ? ' is-filled' : ''}${value.length === index ? ' is-active' : ''}`}
-          aria-hidden="true"
-        >
-          {value[index] ?? ''}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

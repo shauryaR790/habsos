@@ -14,7 +14,7 @@ export function AdProductCard({
   item: MenuItem;
   onOpen: (item: MenuItem) => void;
   onAddToCart: (item: MenuItem) => void;
-  /** Daily Brew — sticker on photo corner */
+  /** Sticker on photo corner (Daily Brew + explore). */
   cornerSticker?: string;
 }) {
   const subtitle = itemIngredientLine(item);

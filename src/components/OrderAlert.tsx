@@ -13,6 +13,7 @@ export type OrderAlertItem = {
 
 let alerts: OrderAlertItem[] = [];
 const listeners = new Set<() => void>();
+const recentOrderIds = new Set<string>();
 
 function emit() {
   for (const listener of listeners) listener();
@@ -24,8 +25,12 @@ function subscribe(listener: () => void) {
 }
 
 export function pushOrderAlert(input: Omit<OrderAlertItem, 'id'>) {
+  if (recentOrderIds.has(input.orderId)) return;
+  recentOrderIds.add(input.orderId);
+  window.setTimeout(() => recentOrderIds.delete(input.orderId), 12_000);
+
   const item: OrderAlertItem = { ...input, id: Date.now() + Math.random() };
-  alerts = [...alerts, item].slice(-4);
+  alerts = [item];
   emit();
   window.setTimeout(() => {
     alerts = alerts.filter((entry) => entry.id !== item.id);

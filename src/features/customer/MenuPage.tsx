@@ -1,22 +1,8 @@
-import { useEffect, useState } from 'react';
 import { GuestMobileLanding } from './GuestMobileLanding';
-import { MenuPageClassic } from './MenuPageClassic';
-
-function useDesktopGuest() {
-  const [desktop, setDesktop] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const onChange = () => setDesktop(mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return desktop;
-}
+import { useGuestDesktop } from './useGuestDesktop';
 
 export function MenuPage() {
-  const desktop = useDesktopGuest();
-  if (desktop) return <MenuPageClassic />;
+  const desktop = useGuestDesktop();
+  if (desktop) return null;
   return <GuestMobileLanding scrollToMenuOnMount />;
 }

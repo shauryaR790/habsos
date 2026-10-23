@@ -1033,7 +1033,7 @@ body:has(.guest)::-webkit-scrollbar { display: none; width: 0; height: 0; }
   border: 0;
   border-radius: 0;
   background: #1f6b3a;
-  color: #f6f3ec;
+  color: #fff;
   text-decoration: none;
   padding: 0 22px;
   place-items: unset;
@@ -1045,6 +1045,7 @@ body:has(.guest)::-webkit-scrollbar { display: none; width: 0; height: 0; }
   display: flex;
   align-items: center;
   line-height: 1;
+  color: #fff;
 }
 .pay-bar span:last-child:not(:first-child) {
   font-family: "Bodoni Moda", Georgia, serif; font-style: italic;
@@ -1336,7 +1337,7 @@ body:has(.guest)::-webkit-scrollbar { display: none; width: 0; height: 0; }
   cursor: not-allowed;
 }
 .otp-total { margin: 4px 0 0; color: #6f6961; font-weight: 650; font-size: 13px; }
-.guest .btn { background: #1f6b3a; border-color: #1f6b3a; color: #f6f3ec; border-radius: 12px; }
+.guest .btn { background: #1f6b3a; border-color: #1f6b3a; color: #fff; border-radius: 12px; }
 .guest .btn:hover { background: #185c32; }
 .guest a.btn { width: 100%; }
 .guest .btn-ghost, .guest .btn-danger { background: transparent; }
@@ -1803,7 +1804,13 @@ body:has(.guest)::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .cart-screen { animation: page-slide 0.42s cubic-bezier(0.22, 0.82, 0.24, 1); }
 .menu-block, .rec-block { animation: rise-in 0.34s cubic-bezier(0.22, 0.82, 0.24, 1); }
 @media (prefers-reduced-motion: reduce) {
+  .order-placed-screen--leave {
+    animation: none;
+    opacity: 0;
+  }
+
   .placed, .placed-ring, .placed-check, .placed-kicker, .placed-num, .placed-name, .placed-meta,
+  .order-placed-screen-title, .order-placed-details,
   .bag-pill, .bag-chip, .bag-tail, .cart-empty-art,
   .guest, .cart-screen, .menu-block, .rec-block, .peek, .make, .item-flow.drawer, .item-flow.drawer-root .backdrop {
     animation: none;

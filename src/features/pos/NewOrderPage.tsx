@@ -38,7 +38,7 @@ import { usePos } from './PosContext';
 type Mode = 'dine' | 'pickup' | 'delivery';
 type PayKind = 'CASH' | 'CARD' | 'UPI' | 'DUE' | 'OTHER';
 type Line = { lineId: string; menuItemId: string; quantity: number; addonIds: string[]; notes: string };
-type Dialog = 'covers' | 'customer' | 'assign' | 'note' | 'split' | 'part' | 'other' | 'advance' | null;
+type Dialog = 'covers' | 'customer' | 'assign' | 'note' | 'split' | 'part' | 'other' | 'advance' | 'discount' | null;
 
 export function NewOrderPage() {
   useTitle('New Order');
@@ -80,6 +80,7 @@ export function NewOrderPage() {
   const [partAmount, setPartAmount] = useState('');
   const [advanceAt, setAdvanceAt] = useState('');
   const [loyaltyNote, setLoyaltyNote] = useState(false);
+  const [discountInr, setDiscountInr] = useState('');
   const [cashTender, setCashTender] = useState('');
   const [orderId, setOrderId] = useState<string | null>(null);
   const loadedRef = useRef<string | null>(null);
@@ -116,6 +117,7 @@ export function NewOrderPage() {
         loadedRef.current = null;
         setOrderId(null);
         setLines([]);
+        setDiscountInr('');
       }
       if (queryName) setName(queryName);
       if (queryMobile) setMobile(queryMobile);
@@ -128,6 +130,7 @@ export function NewOrderPage() {
       loadedRef.current = null;
       setOrderId(null);
       setLines([]);
+      setDiscountInr('');
       return;
     }
     loadedRef.current = openId;
@@ -182,6 +185,7 @@ export function NewOrderPage() {
     setPayKind(orderFlag(order.notes, 'DUE') ? 'DUE' : 'CASH');
     setPaid(false);
     setPartAmount('');
+    setDiscountInr(order.discount > 0 ? String(order.discount) : '');
   }, [pos.orders, queryOrder, table, tableId]);
 
   useEffect(() => {
@@ -197,14 +201,25 @@ export function NewOrderPage() {
     setCovers(String(seated.reservation.covers));
   }, [orderId, pos.tables, tableId]);
 
+  const discountAmount = useMemo(() => {
+    const n = Math.round(Number(discountInr.replace(/\D/g, '') || 0));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [discountInr]);
+
   const quote = useMemo(() => {
     if (!catalog || !lines.length) return null;
     try {
-      return priceCart({ lines, items: catalog.items, groups: catalog.addonGroups, taxBps: catalog.cafe.taxBps });
+      return priceCart({
+        lines,
+        items: catalog.items,
+        groups: catalog.addonGroups,
+        taxBps: catalog.cafe.taxBps,
+        discount: discountAmount,
+      });
     } catch (err) {
       return err instanceof PriceError ? err.message : 'Check the items.';
     }
-  }, [catalog, lines]);
+  }, [catalog, discountAmount, lines]);
   const priced = typeof quote === 'object' ? quote : null;
   const editLine = lines.find((line) => line.lineId === editLineId) ?? null;
   const sheetItem = editLine
@@ -357,6 +372,7 @@ export function NewOrderPage() {
             customerMobile: mobile,
             items: lines,
             notes,
+            discount: discountAmount,
           })
           : await pos.createOrder({
             tableId: mode === 'dine' ? tableId : null,
@@ -364,6 +380,7 @@ export function NewOrderPage() {
             customerMobile: mobile,
             items: lines,
             notes,
+            discount: discountAmount,
           });
       const kotTo = nextTicketStatus(order.status, 'kot');
       const printTo = nextTicketStatus(order.status, 'print');
@@ -664,6 +681,9 @@ export function NewOrderPage() {
           <footer className="bill-foot">
             <div className="bill-foot-top">
               <div className="bill-offers">
+                <button type="button" className={discountAmount > 0 ? 'is-on' : undefined} onClick={() => setDialog('discount')}>
+                  Discount{discountAmount > 0 ? ` −${formatINR(discountAmount)}` : ''}
+                </button>
                 <button type="button" onClick={() => setDialog('split')}>Split</button>
                 <button type="button" onClick={() => void settle('comp')} disabled={!canAct || busy}>Complimentary</button>
                 <button type="button" onClick={() => setDialog('advance')}>Advance Order</button>
@@ -731,7 +751,17 @@ export function NewOrderPage() {
             {splitChild && liveOrder ? (
               <p className="bill-tax">Split share · Subtotal {formatINR(liveOrder.subtotal)} · Tax {taxLabel(catalog.cafe.taxBps)} {formatINR(liveOrder.tax)}</p>
             ) : priced ? (
-              <p className="bill-tax">Subtotal {formatINR(priced.subtotal)} · Tax {taxLabel(catalog.cafe.taxBps)} {formatINR(priced.tax)}</p>
+              <p className="bill-tax">
+                Subtotal {formatINR(priced.subtotal)}
+                {priced.discount > 0 ? (
+                  <>
+                    {' · '}
+                    <span className="bill-tax-discount">Discount −{formatINR(priced.discount)}</span>
+                  </>
+                ) : null}
+                {' · '}
+                Tax {taxLabel(catalog.cafe.taxBps)} {formatINR(priced.tax)}
+              </p>
             ) : null}
           </footer>
         </aside>
@@ -808,6 +838,27 @@ export function NewOrderPage() {
         <div className="tv-form">
           <TextArea label="Comment" rows={4} maxLength={400} value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
           <Button onClick={() => setDialog(null)}>Save</Button>
+        </div>
+      </Modal>
+      <Modal open={dialog === 'discount'} title="Bill discount" onClose={() => setDialog(null)}>
+        <div className="tv-form">
+          <Input
+            label="Discount (₹ off subtotal)"
+            inputMode="numeric"
+            value={discountInr}
+            onChange={(event) => setDiscountInr(event.target.value.replace(/\D/g, ''))}
+            placeholder="0"
+          />
+          {priced ? (
+            <p className="fine">
+              New total {formatINR(priced.total)}
+              {priced.discount > 0 ? ` after ${formatINR(priced.discount)} off` : ''}
+            </p>
+          ) : null}
+          <div className="row-actions">
+            <Button variant="ghost" onClick={() => { setDiscountInr(''); setDialog(null); }}>Clear</Button>
+            <Button onClick={() => setDialog(null)}>Apply</Button>
+          </div>
         </div>
       </Modal>
       <Modal open={dialog === 'split'} title="Split" onClose={() => setDialog(null)}>

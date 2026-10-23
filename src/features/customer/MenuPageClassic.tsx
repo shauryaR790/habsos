@@ -14,6 +14,7 @@ import { isColdMenuItem } from '../../../shared/menuDisplay';
 import { RECOMMENDED } from './menuFacts';
 import { TableScanner } from './TableScanner';
 import { GuestHeader } from './GuestHeader';
+import { useGuestMenuItemDeepLink } from './guestOpenItemLink';
 
 export function MenuPageClassic() {
   useTitle('Menu');
@@ -78,6 +79,7 @@ export function MenuPageClassic() {
   }, [navigate]);
 
   const catalog = cart.catalog;
+  useGuestMenuItemDeepLink(catalog, setSheet);
   const sheetItem = catalog?.items.find((item) => item.id === sheet?.itemId) ?? null;
   const available = catalog?.items.filter((item) => item.isAvailable) ?? [];
   const categories = (catalog?.categories ?? [])

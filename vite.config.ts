@@ -27,6 +27,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff2}'],
+        globIgnores: ['**/ad/hero-desert-wide.png'],
       },
       devOptions: { enabled: false },
     }),
