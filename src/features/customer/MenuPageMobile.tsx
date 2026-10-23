@@ -8,7 +8,8 @@ import { LoadingState } from '../../components/LoadingState';
 import { Modal } from '../../components/Modal';
 import { useCart, type Bootstrap, type CartLine } from './cart';
 import { ItemSheet } from './ItemSheet';
-import { EXPLORE_HEAD, RECOMMENDED } from './menuFacts';
+import { DESERT_BREW_DESKTOP_EXTRA, EXPLORE_HEAD, RECOMMENDED } from './menuFacts';
+import { useGuestDesktop } from './useGuestDesktop';
 import { TableScanner } from './TableScanner';
 import { AdBottomNav } from './ad/AdBottomNav';
 import { AdMobileShell } from './ad/AdMobileShell';
@@ -25,6 +26,7 @@ type MenuPageMobileProps = {
 export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-menu' }: MenuPageMobileProps) {
   useTitle(landingSection ? 'After Dunes' : 'Menu');
   const cart = useCart();
+  const desktop = useGuestDesktop();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [scanning, setScanning] = useState(false);
@@ -123,20 +125,25 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
   const available = catalog?.items.filter((item) => item.isAvailable) ?? [];
 
   const { dailyBrew, exploreMenu } = useMemo(() => {
-    const dailyBrew = RECOMMENDED.map((id) => available.find((item) => item.id === id)).filter(
-      (item): item is (typeof available)[number] => Boolean(item),
-    );
-    const rest = available.filter((item) => !RECOMMENDED.includes(item.id));
-    const head = EXPLORE_HEAD.map((id) => rest.find((item) => item.id === id)).filter(
-      (item): item is (typeof rest)[number] => Boolean(item),
-    );
-    const tail = rest.filter((item) => !EXPLORE_HEAD.includes(item.id));
+    const brewIds = desktop
+      ? [...RECOMMENDED, ...DESERT_BREW_DESKTOP_EXTRA]
+      : [...RECOMMENDED];
+    const brewIdSet = new Set<string>(brewIds);
+    const dailyBrew = brewIds
+      .map((id) => available.find((item) => item.id === id))
+      .filter((item): item is (typeof available)[number] => Boolean(item));
+    const rest = available.filter((item) => !brewIdSet.has(item.id));
+    const exploreHeadIds = EXPLORE_HEAD.filter((id) => !brewIdSet.has(id));
+    const head = exploreHeadIds
+      .map((id) => rest.find((item) => item.id === id))
+      .filter((item): item is (typeof rest)[number] => Boolean(item));
+    const tail = rest.filter((item) => !exploreHeadIds.includes(item.id));
     const explore = [...head, ...tail];
     return {
       dailyBrew,
       exploreMenu: explore.length ? explore : dailyBrew.length ? [] : available,
     };
-  }, [available]);
+  }, [available, desktop]);
 
   function openItem(item: Bootstrap['items'][number]) {
     setSheet({ itemId: item.id });

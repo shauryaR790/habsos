@@ -107,17 +107,29 @@ export function CartPage() {
     </>
   );
 
-  return (
-    <>
-      {empty ? (
-        <div className={`guest guest-flow-compact cart-screen ad-guest-cart cart-screen-empty`}>
+  const emptyBrowse = (
+    <Link className="pay-bar cart-empty-foot ad-guest-drawer-checkout" to={menuHref} onClick={() => saveMenuScroll()}>
+      <span>Browse menu</span>
+    </Link>
+  );
+
+  const emptyCartScreen = (
+    <div
+      className={`guest cart-screen ad-guest-cart cart-screen-empty ad-guest-surface-bg${
+        desktop ? ' ad-guest-drawer-page cart-screen-empty--drawer' : ' guest-flow-compact'
+      }`}
+    >
           <div className="cart-layout">
             <main className="guest-main cart-main">
               <div className="cart-empty-stack">
-                <h1 className="cart-empty-title ad-hero-title">
-                  <span className="ad-hero-title-row">Nothing in</span>
-                  <span className="ad-hero-title-line">the bag</span>
-                </h1>
+                {desktop ? (
+                  <h1 className="cart-empty-title cart-empty-title--drawer">Nothing in the bag</h1>
+                ) : (
+                  <h1 className="cart-empty-title ad-hero-title">
+                    <span className="ad-hero-title-row">Nothing in</span>
+                    <span className="ad-hero-title-line">the bag</span>
+                  </h1>
+                )}
                 {cart.catalog ? (
                   <CartEmptyCarousel
                     items={cart.catalog.items}
@@ -128,26 +140,42 @@ export function CartPage() {
               </div>
             </main>
           </div>
-          <div className="cart-empty-stage" aria-hidden="true">
-            <div className="cart-empty-cookie-deco">
-              <div className="cart-empty-orbit">
-                <div className="cart-empty-orbit-spin">
-                  <img
-                    className="cart-empty-cookie"
-                    src="/items/380246da263c0bed37b936b3e48da5c6-removebg-preview.png"
-                    alt=""
-                    width={640}
-                    height={640}
-                    decoding="async"
-                  />
-                </div>
+      {!desktop ? (
+        <div className="cart-empty-stage" aria-hidden="true">
+          <div className="cart-empty-cookie-deco">
+            <div className="cart-empty-orbit">
+              <div className="cart-empty-orbit-spin">
+                <img
+                  className="cart-empty-cookie"
+                  src="/items/380246da263c0bed37b936b3e48da5c6-removebg-preview.png"
+                  alt=""
+                  width={640}
+                  height={640}
+                  decoding="async"
+                />
               </div>
             </div>
           </div>
-          <Link className="pay-bar cart-empty-foot" to={menuHref}>
-            <span>Browse menu</span>
-          </Link>
         </div>
+      ) : null}
+      {!desktop ? (
+        <Link className="pay-bar cart-empty-foot" to={menuHref}>
+          <span>Browse menu</span>
+        </Link>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <>
+      {empty ? (
+        desktop ? (
+          <GuestDrawerShell title="My bag" closeTo={menuHref} footer={emptyBrowse}>
+            {emptyCartScreen}
+          </GuestDrawerShell>
+        ) : (
+          emptyCartScreen
+        )
       ) : (
         <>
         <GuestDrawerShell title="My bag" closeTo={menuHref} footer={desktop ? checkoutFooter : undefined}>

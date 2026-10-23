@@ -21,6 +21,9 @@ export const RECOMMENDED = [
   'item_harvest',
 ];
 
+/** Extra Desert brews cards on desktop landing only (after RECOMMENDED). */
+export const DESERT_BREW_DESKTOP_EXTRA = ['item_cappuccino', 'item_saigon'] as const;
+
 /** Shown first in Explore More after a swap with the old Daily Brew lead four. */
 export const EXPLORE_HEAD = [
   'item_cappuccino',

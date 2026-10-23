@@ -2908,6 +2908,75 @@ body:has(.order-placed-screen) {
     object-fit: cover;
   }
 
+  /* Empty bag drawer — compact layout (not full-screen hero) */
+  .ad-guest-drawer-page.cart-screen-empty--drawer,
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer {
+    display: block;
+    flex: 0 0 auto;
+    min-height: 0;
+    height: auto;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-layout {
+    flex: 0 0 auto;
+    min-height: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .guest-main.cart-main {
+    flex: 0 0 auto;
+    min-height: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-empty-stack {
+    flex: 0 0 auto;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+    width: 100%;
+  }
+
+  .ad-guest-drawer-body .cart-empty-title--drawer {
+    margin: 0 0 14px;
+    padding: 0;
+    max-width: none;
+    font-family: var(--ad-hero-font, "Anton", "Roboto Condensed", "Arial Narrow", sans-serif);
+    font-size: 1.55rem;
+    font-weight: 400;
+    line-height: 1.08;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ad-palette-olive, #3f4222);
+    text-shadow: none;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-empty-carousel {
+    width: calc(100% + 36px);
+    max-width: none;
+    margin: 8px -18px 0;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty .cart-empty-carousel-card {
+    flex: 0 0 148px;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty .cart-empty-carousel-photo img,
+  .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty .cart-empty-carousel-photo-fallback {
+    height: 108px;
+  }
+
+  .ad-guest-drawer-foot .cart-empty-foot.ad-guest-drawer-checkout {
+    width: 100%;
+    justify-content: center;
+    min-height: 48px;
+    border-radius: 2px;
+  }
+
   .ad-guest-page:has(.ad-guest-drawer-root) {
     padding-top: 0;
     min-height: 0;

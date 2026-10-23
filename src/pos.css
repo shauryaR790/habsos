@@ -1474,6 +1474,15 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+  margin-bottom: 0;
+  flex: 0 0 auto;
+}
+.tv-start {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   margin-bottom: 12px;
 }
 .tv-bar h1 {
@@ -1484,6 +1493,13 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
 }
 .tv-actions, .tv-modes, .tv-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tv-modes { margin-left: auto; }
+.tv-legend {
+  flex: 0 0 auto;
+  width: 100%;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+}
 .tv-red, .tv-ghost {
   min-height: 36px;
   padding: 0 12px;
@@ -1585,7 +1601,8 @@ body:has(.pos) .toast.err, body:has(.login) .toast.err { border-left-color: #d32
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.65rem;
-  padding: 0.75rem 1rem 0;
+  padding: 0;
+  margin: 0;
   align-items: stretch;
 }
 @media (max-width: 900px) {

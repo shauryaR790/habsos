@@ -74,9 +74,12 @@ export function CheckoutPage() {
   const menuHref = `/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`;
 
   if (!cart.tableCode || cart.lines.length === 0) {
-    return (
-      <>
-      <div className="guest guest-flow-compact cart-screen checkout-screen ad-guest-cart checkout-screen-empty cart-screen-empty ad-guest-surface-bg">
+    const emptyCheckout = (
+      <div
+        className={`guest cart-screen checkout-screen ad-guest-cart checkout-screen-empty cart-screen-empty ad-guest-surface-bg${
+          desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
+        }`}
+      >
         <main className="guest-main checkout-main">
           <div className="cart-empty-stack">
             <div className="cart-empty">
@@ -87,13 +90,30 @@ export function CheckoutPage() {
             </div>
           </div>
         </main>
-        <Link className="pay-bar cart-empty-foot" to={menuHref}>
-          <span>Back to menu</span>
-        </Link>
+        {!desktop ? (
+          <Link className="pay-bar cart-empty-foot" to={menuHref}>
+            <span>Back to menu</span>
+          </Link>
+        ) : null}
+      </div>
+    );
+    const emptyFoot = (
+      <Link className="pay-bar cart-empty-foot ad-guest-drawer-checkout" to={menuHref}>
+        <span>Back to menu</span>
+      </Link>
+    );
+    return (
+      <>
+        {desktop ? (
+          <GuestDrawerShell title="Checkout" closeTo={menuHref} footer={emptyFoot} panelSurface="desert">
+            {emptyCheckout}
+          </GuestDrawerShell>
+        ) : (
+          emptyCheckout
+        )}
         <Modal open={scanning} title="Scan table" onClose={() => setScanning(false)}>
           {scanning ? <TableScanner onTable={onTable} /> : null}
         </Modal>
-      </div>
       </>
     );
   }

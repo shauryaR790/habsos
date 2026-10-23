@@ -273,6 +273,14 @@ export function TablesPage() {
           <button type="button" className="tv-red" onClick={() => { setContactTable(pos.tables[0]?.id ?? ''); setDialog('contactless'); }}>+ Contactless</button>
           <button type="button" className="tv-ghost" onClick={() => { setMoveFrom(occupied[0]?.id ?? ''); setMoveTo(blank[0]?.id ?? ''); setDialog('move'); }}>Move KOT / Items</button>
         </div>
+        <div className="tv-modes">
+          <button type="button" className="tv-ghost" onClick={() => navigate('/pos/orders/new?mode=delivery')}>Delivery</button>
+          <button type="button" className="tv-red" onClick={() => navigate('/pos/orders/new?mode=pickup')}>Pick Up</button>
+          <button type="button" className="tv-red" onClick={() => setDialog('add')}>+ Add Table</button>
+        </div>
+      </header>
+
+      <div className="tv-start">
         <div className="tv-legend" role="group" aria-label="Table status">
           {LEGEND.map((entry) => (
             <button
@@ -287,12 +295,6 @@ export function TablesPage() {
             </button>
           ))}
         </div>
-        <div className="tv-modes">
-          <button type="button" className="tv-ghost" onClick={() => navigate('/pos/orders/new?mode=delivery')}>Delivery</button>
-          <button type="button" className="tv-red" onClick={() => navigate('/pos/orders/new?mode=pickup')}>Pick Up</button>
-          <button type="button" className="tv-red" onClick={() => setDialog('add')}>+ Add Table</button>
-        </div>
-      </header>
 
       <section className="pos-hub" aria-label="Start an order">
         <button type="button" className="pos-hub-card" onClick={() => navigate(registerPath({ mode: 'dine', customerName: 'Walk-in' }))}>
@@ -316,6 +318,7 @@ export function TablesPage() {
           <span>{dueCount ? `${dueCount} open · ${formatINR(pos.orders.filter((o) => o.paymentStatus === 'UNPAID' && OPEN_STATUSES.includes(o.status)).reduce((s, o) => s + dueTotal(o), 0))} due` : 'Nothing due'}</span>
         </button>
       </section>
+      </div>
 
       <div className="tv-body">
         {grouped.map((group) => (
