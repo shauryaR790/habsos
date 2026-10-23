@@ -1,6 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Modal } from '../../components/Modal';
 import { OrderAlertHost } from '../../components/OrderAlert';
 import { pushToast } from '../../components/Toast';
 import { OPEN_STATUSES, registerPath } from '../../../shared/domain';
@@ -17,7 +16,7 @@ function Ico({ children, fill = 'none' }: { children: ReactNode; fill?: string }
 
 const NAV = [
   { to: '/pos', label: 'Table View' },
-  { to: '/pos/orders/new', label: 'Now Order' },
+  { to: '/pos/orders/new', label: 'Order Now' },
   { to: '/pos/orders', label: 'Running Orders' },
   { to: '/pos/payments', label: 'Payments' },
   { to: '/pos/customers', label: 'Customers' },
@@ -32,7 +31,6 @@ export function PosLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [billNo, setBillNo] = useState('');
-  const [support, setSupport] = useState(false);
   const [menu, setMenu] = useState(false);
   const fill = location.pathname === '/pos'
     || location.pathname === '/pos/tables'
@@ -86,7 +84,7 @@ export function PosLayout() {
           <Link className="pos-logo" to="/pos" aria-label={`${cafe} table view`}>
             <span className="pos-logo-name">{cafe}</span>
           </Link>
-          <Link className="pos-new" to="/pos/orders/new">Now Order</Link>
+          <Link className="pos-new" to="/pos/orders/new">Order Now</Link>
           <form className="pos-bill-find" onSubmit={findBill}>
             <label>
               <span className="sr-only">Bill number</span>
@@ -98,17 +96,6 @@ export function PosLayout() {
               />
             </label>
           </form>
-          <button type="button" className="pos-call" onClick={() => setSupport(true)}>
-            <span className="pos-call-ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M7 3h4l1 5-2 1a12 12 0 0 0 5 5l1-2 5 1v4a2 2 0 0 1-2 2A16 16 0 0 1 3 7a2 2 0 0 1 2-2z" />
-              </svg>
-            </span>
-            <span>
-              <b>Call For Support</b>
-              <small>{pos.user?.name ?? 'Staff desk'}</small>
-            </span>
-          </button>
           <nav className="pos-tools" aria-label="Register tools">
             <Link className={onRunning ? 'on' : ''} to="/pos/orders" title="Running Orders" aria-label="Running Orders">
               <Ico><path d="M8 3h8v3H8z" /><path d="M6 6h12v15H6z" /><path d="M9 11h6M9 15h4" /></Ico>
@@ -173,16 +160,6 @@ export function PosLayout() {
             ))}
           </nav>
         </div>
-      ) : null}
-
-      {support ? (
-        <Modal open title="Support" onClose={() => setSupport(false)}>
-          <dl className="pos-support-dl">
-            <div><dt>Cafe</dt><dd>{cafe}</dd></div>
-            <div><dt>Signed in</dt><dd>{pos.user?.name ?? 'Staff'} · {pos.user?.email ?? ''}</dd></div>
-            <div><dt>Connection</dt><dd>{pos.conn}{pos.pending ? ` · ${pos.pending} waiting` : ''}</dd></div>
-          </dl>
-        </Modal>
       ) : null}
     </div>
   );

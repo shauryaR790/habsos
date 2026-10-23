@@ -19,6 +19,17 @@ import { EmptyState } from '../../components/EmptyState';
 import { printSalesReport } from '../../lib/printReport';
 import { api } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
+import {
+  ChannelBarChart,
+  CompareToggle,
+  HourColumnChart,
+  HoursTable,
+  KpiDelta,
+  NamedBarChart,
+  PaymentMixChart,
+  ReportViewToggle,
+  type ReportViewMode,
+} from './reportCharts';
 import { usePos } from './PosContext';
 
 const TABS = [
@@ -44,6 +55,13 @@ function weekStartYmd(timeZone: string, now = new Date()) {
   const weekday = new Date(`${today}T12:00:00.000Z`).getUTCDay();
   const back = weekday === 0 ? 6 : weekday - 1;
   return shiftYmd(today, -back);
+}
+
+function priorPeriod(fromYmd: string, toYmd: string) {
+  const start = Date.parse(`${fromYmd}T12:00:00.000Z`);
+  const end = Date.parse(`${toYmd}T12:00:00.000Z`);
+  const days = Math.max(1, Math.round((end - start) / 86_400_000) + 1);
+  return { priorFrom: shiftYmd(fromYmd, -days), priorTo: shiftYmd(fromYmd, -1), days };
 }
 
 function localRange(pos: ReturnType<typeof usePos>, fromYmd: string, toYmd: string): SalesReport {
@@ -83,10 +101,18 @@ export function ReportsPage() {
   const [toYmd, setToYmd] = useState(today);
   const [preset, setPreset] = useState<RangePreset>('today');
   const [tab, setTab] = useState<Tab>('summary');
+  const [viewMode, setViewMode] = useState<ReportViewMode>('charts');
+  const [compareOn, setCompareOn] = useState(false);
   const [itemFilter, setItemFilter] = useState<string | null>(null);
   const [hourFilter, setHourFilter] = useState<number | null>(null);
   const local = useMemo(() => localRange(pos, fromYmd, toYmd), [fromYmd, pos, toYmd]);
+  const prior = useMemo(() => priorPeriod(fromYmd, toYmd), [fromYmd, toYmd]);
+  const localCompare = useMemo(
+    () => (compareOn ? localRange(pos, prior.priorFrom, prior.priorTo) : null),
+    [compareOn, pos, prior.priorFrom, prior.priorTo],
+  );
   const [report, setReport] = useState<SalesReport>(local);
+  const [compareReport, setCompareReport] = useState<SalesReport | null>(null);
 
   useEffect(() => {
     setReport(local);
@@ -95,6 +121,20 @@ export function ReportsPage() {
       .then(setReport)
       .catch(() => setReport(local));
   }, [fromYmd, local, pos.conn, pos.orders, toYmd]);
+
+  useEffect(() => {
+    if (!compareOn) {
+      setCompareReport(null);
+      return;
+    }
+    setCompareReport(localCompare);
+    if (pos.conn === 'OFFLINE') return;
+    void api<SalesReport>(
+      `/api/reports?from=${encodeURIComponent(prior.priorFrom)}&to=${encodeURIComponent(prior.priorTo)}`,
+    )
+      .then(setCompareReport)
+      .catch(() => setCompareReport(localCompare));
+  }, [compareOn, localCompare, pos.conn, pos.orders, prior.priorFrom, prior.priorTo]);
 
   function applyPreset(next: RangePreset) {
     setPreset(next);
@@ -169,6 +209,12 @@ export function ReportsPage() {
             }}
           />
         </label>
+        <ReportViewToggle mode={viewMode} onChange={setViewMode} />
+        <CompareToggle
+          on={compareOn}
+          onChange={setCompareOn}
+          label={compareOn ? `vs ${prior.priorFrom}–${prior.priorTo}` : 'Compare 2 periods'}
+        />
         <Button variant="ghost" onClick={() => printSalesReport(report, pos.cafe?.name ?? 'After Dunes')}>Print</Button>
       </div>
 
@@ -193,11 +239,13 @@ export function ReportsPage() {
             <span>Bills</span>
             <strong>{report.bills}</strong>
             <small>Avg {formatINR(report.averageTicket)}</small>
+            {compareReport ? <KpiDelta current={report.bills} prior={compareReport.bills} suffix="vs prior" /> : null}
           </article>
           <article className="money-tile">
             <span>Gross</span>
             <strong>{formatINR(report.gross)}</strong>
             <small>Discount {formatINR(report.discount)}</small>
+            {compareReport ? <KpiDelta current={report.gross} prior={compareReport.gross} suffix="vs prior" /> : null}
           </article>
           <article className="money-tile">
             <span>Tax</span>
@@ -208,6 +256,7 @@ export function ReportsPage() {
             <span>Collected</span>
             <strong>{formatINR(report.collected)}</strong>
             <small>Due {formatINR(report.due)}</small>
+            {compareReport ? <KpiDelta current={report.collected} prior={compareReport.collected} suffix="vs prior" /> : null}
           </article>
           <article className="money-tile">
             <span>Complimentary</span>
@@ -220,87 +269,156 @@ export function ReportsPage() {
       {tab === 'summary' || tab === 'payments' ? (
         <>
           <h2>Payment collection</h2>
-          <div className="money-grid">
-            {([['Cash', report.byMethod.CASH], ['Card', report.byMethod.CARD], ['UPI', report.byMethod.UPI], ['Other', report.byMethod.OTHER]] as const).map(([label, amount]) => (
-              <article key={label} className="money-tile">
-                <span>{label}</span>
-                <strong>{formatINR(amount)}</strong>
-              </article>
-            ))}
-          </div>
+          {viewMode === 'charts' ? (
+            <PaymentMixChart
+              cash={report.byMethod.CASH}
+              card={report.byMethod.CARD}
+              upi={report.byMethod.UPI}
+              other={report.byMethod.OTHER}
+            />
+          ) : (
+            <div className="money-grid">
+              {([['Cash', report.byMethod.CASH], ['Card', report.byMethod.CARD], ['UPI', report.byMethod.UPI], ['Other', report.byMethod.OTHER]] as const).map(([label, amount]) => (
+                <article key={label} className="money-tile">
+                  <span>{label}</span>
+                  <strong>{formatINR(amount)}</strong>
+                </article>
+              ))}
+            </div>
+          )}
+          {viewMode === 'tables' ? (
+            <div className="run-wrap rpt-print-table">
+              <table className="run-table rpt-table">
+                <thead>
+                  <tr>
+                    <th>Method</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {([['Cash', report.byMethod.CASH], ['Card', report.byMethod.CARD], ['UPI', report.byMethod.UPI], ['Other', report.byMethod.OTHER]] as const).map(([label, amount]) => (
+                    <tr key={label}>
+                      <td>{label}</td>
+                      <td className="price">{formatINR(amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </>
       ) : null}
 
       {tab === 'summary' ? (
         <>
           <h2>Order type</h2>
-          <div className="money-grid">
-            {(['dine', 'pickup', 'delivery'] as const).map((channel) => (
-              <article key={channel} className="money-tile">
-                <span>{CHANNEL[channel]}</span>
-                <strong>{formatINR(report.byChannel[channel].amount)}</strong>
-                <small>{report.byChannel[channel].bills} bills</small>
+          {viewMode === 'charts' ? (
+            <ChannelBarChart
+              rows={[
+                ...(['dine', 'pickup', 'delivery'] as const).map((channel) => ({
+                  label: CHANNEL[channel],
+                  amount: report.byChannel[channel].amount,
+                  bills: report.byChannel[channel].bills,
+                })),
+                { label: 'QR / Contactless', amount: report.bySource.QR.amount, bills: report.bySource.QR.bills },
+              ]}
+            />
+          ) : (
+            <div className="money-grid">
+              {(['dine', 'pickup', 'delivery'] as const).map((channel) => (
+                <article key={channel} className="money-tile">
+                  <span>{CHANNEL[channel]}</span>
+                  <strong>{formatINR(report.byChannel[channel].amount)}</strong>
+                  <small>{report.byChannel[channel].bills} bills</small>
+                </article>
+              ))}
+              <article className="money-tile">
+                <span>QR / Contactless</span>
+                <strong>{formatINR(report.bySource.QR.amount)}</strong>
+                <small>{report.bySource.QR.bills} bills</small>
               </article>
-            ))}
-            <article className="money-tile">
-              <span>QR / Contactless</span>
-              <strong>{formatINR(report.bySource.QR.amount)}</strong>
-              <small>{report.bySource.QR.bills} bills</small>
-            </article>
-          </div>
+            </div>
+          )}
         </>
       ) : null}
 
       {tab === 'summary' || tab === 'hours' ? (
         <>
           <h2>Hour wise</h2>
-          {peakHour === 0 ? (
-            <p className="fine">No billed hours in this range.</p>
+          {viewMode === 'charts' ? (
+            <HourColumnChart
+              hours={report.hours}
+              peak={peakHour}
+              selected={hourFilter}
+              compareHours={compareReport?.hours}
+              onPick={(hour) => {
+                setHourFilter(hourFilter === hour ? null : hour);
+                setTab('hours');
+              }}
+            />
           ) : (
-            <div className="stage-list">
-              {report.hours.filter((row) => tab === 'hours' || row.bills > 0).map((row) => (
-                <button
-                  key={row.hour}
-                  type="button"
-                  className={hourFilter === row.hour ? 'stage-row rpt-bar on' : 'stage-row rpt-bar'}
-                  onClick={() => {
-                    setHourFilter(hourFilter === row.hour ? null : row.hour);
-                    setTab('hours');
-                  }}
-                >
-                  <span>{String(row.hour).padStart(2, '0')}:00</span>
-                  <span className="stage-bar" aria-hidden="true">
-                    <i style={{ width: `${peakHour ? Math.max(6, (row.amount / peakHour) * 100) : 0}%` }} />
-                  </span>
-                  <strong>{formatINR(row.amount)}</strong>
-                  <small>{row.bills}</small>
-                </button>
-              ))}
-            </div>
+            <HoursTable
+              hours={report.hours}
+              selected={hourFilter}
+              onPick={(hour) => {
+                setHourFilter(hourFilter === hour ? null : hour);
+                setTab('hours');
+              }}
+            />
           )}
         </>
       ) : null}
 
       {tab === 'summary' || tab === 'items' ? (
-        <NamedTable
-          title="Item wise"
-          rows={tab === 'summary' ? report.items.slice(0, 12) : report.items}
-          selected={itemFilter}
-          empty="No items sold in this range."
-          onPick={(name) => {
-            setItemFilter(itemFilter === name ? null : name);
-            setTab('items');
-          }}
-        />
+        <>
+          <h2>Item wise</h2>
+          {viewMode === 'charts' ? (
+            report.items.length === 0 ? (
+              <p className="fine">No items sold in this range.</p>
+            ) : (
+              <NamedBarChart
+                rows={tab === 'summary' ? report.items.slice(0, 12) : report.items}
+                compareRows={compareReport?.items}
+                selected={itemFilter}
+                onPick={(name) => {
+                  setItemFilter(itemFilter === name ? null : name);
+                  setTab('items');
+                }}
+              />
+            )
+          ) : (
+            <NamedTable
+              title=""
+              rows={tab === 'summary' ? report.items.slice(0, 12) : report.items}
+              selected={itemFilter}
+              empty="No items sold in this range."
+              onPick={(name) => {
+                setItemFilter(itemFilter === name ? null : name);
+                setTab('items');
+              }}
+            />
+          )}
+        </>
       ) : null}
 
       {tab === 'categories' ? (
-        <NamedTable
-          title="Category wise"
-          rows={report.categories}
-          selected={null}
-          empty="No categories in this range."
-        />
+        <>
+          <h2>Category wise</h2>
+          {viewMode === 'charts' ? (
+            report.categories.length === 0 ? (
+              <p className="fine">No categories in this range.</p>
+            ) : (
+              <NamedBarChart rows={report.categories} compareRows={compareReport?.categories} />
+            )
+          ) : (
+            <NamedTable
+              title=""
+              rows={report.categories}
+              selected={null}
+              empty="No categories in this range."
+            />
+          )}
+        </>
       ) : null}
 
       {tab === 'items' && itemFilter ? (
@@ -357,7 +475,7 @@ function NamedTable({
 }) {
   return (
     <>
-      <h2>{title}</h2>
+      {title ? <h2>{title}</h2> : null}
       {rows.length === 0 ? (
         <p className="fine">{empty}</p>
       ) : (

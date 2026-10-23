@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import type { TableInfo } from '../../../shared/domain';
 import { useTitle } from '../../lib/useTitle';
@@ -42,6 +42,10 @@ export function SettingsPage() {
   }, [pos.conn]);
 
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const tables = useMemo(
+    () => [...pos.tables].sort((a, b) => a.qrCode.localeCompare(b.qrCode, undefined, { numeric: true })),
+    [pos.tables],
+  );
 
   return (
     <section className="pos-page">
@@ -49,19 +53,22 @@ export function SettingsPage() {
         <h1>Settings</h1>
       </header>
 
+      <div className="settings-grid">
       <section className="panel">
         <h2>Cafe</h2>
         <form
-          className="stack"
+          className="stack settings-cafe-form"
           onSubmit={(event) => {
             event.preventDefault();
             void pos.saveSettings({ name, taxBps: Math.round(Number(tax) * 100) });
           }}
         >
-          <Input label="Cafe name" value={name} onChange={(event) => setName(event.target.value)} />
-          <Input label="Tax percent" type="number" min={0} max={28} step={0.01} value={tax} onChange={(event) => setTax(event.target.value)} />
+          <div className="settings-form-row">
+            <Input label="Cafe name" value={name} onChange={(event) => setName(event.target.value)} />
+            <Input label="Tax percent" type="number" min={0} max={28} step={0.01} value={tax} onChange={(event) => setTax(event.target.value)} />
+          </div>
           <p className="fine">Timezone {pos.cafe?.timezone ?? 'Asia/Kolkata'} · integer rupees. Guest menu names and prices stay as published.</p>
-          <Button type="submit">Save</Button>
+          <Button type="submit" className="settings-save">Save</Button>
         </form>
       </section>
 
@@ -79,26 +86,13 @@ export function SettingsPage() {
       </section>
 
       <section className="panel">
-        <h2>Table QR codes</h2>
-        <p className="fine">Print one per table. Scanning it opens the guest menu for that table.</p>
-        <div className="chip-row">
-          {pos.tables.map((table) => (
-            <button key={table.id} type="button" className="chip" onClick={() => setQrTable(table)}>
-              {table.name}
-            </button>
-          ))}
-        </div>
-        <Button variant="ghost" onClick={() => void printAllTableQr(pos.tables, pos.cafe?.name ?? 'After Dunes')}>Print all QR codes</Button>
-      </section>
-
-      <section className="panel">
         <h2>This device</h2>
         <p className="fine">
           Connection: {pos.conn === 'ONLINE' ? 'Online' : pos.conn === 'OFFLINE' ? 'Offline' : pos.conn === 'SYNCING' ? 'Syncing' : 'Sync error'}
           {provider ? ` · OTP by ${provider}` : ''}
         </p>
         {prompt ? (
-          <Button onClick={() => void prompt.prompt()}>Install app</Button>
+          <Button className="settings-save" onClick={() => void prompt.prompt()}>Install app</Button>
         ) : (
           <p className="fine">{ios ? 'On iPhone or iPad: Share, then Add to Home Screen.' : 'Use the browser menu to install After Dunes for a full-screen register.'}</p>
         )}
@@ -108,7 +102,22 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel settings-panel-wide">
+        <h2>Table QR codes</h2>
+        <p className="fine">Print one per table. Scanning it opens the guest menu for that table.</p>
+        <div className="settings-qr-grid">
+          {tables.map((table) => (
+            <button key={table.id} type="button" className="chip" onClick={() => setQrTable(table)}>
+              {table.name}
+            </button>
+          ))}
+        </div>
+        <Button variant="ghost" className="settings-save" onClick={() => void printAllTableQr(pos.tables, pos.cafe?.name ?? 'After Dunes')}>
+          Print all QR codes
+        </Button>
+      </section>
+
+      <section className="panel settings-panel-wide">
         <h2>Sync queue</h2>
         {pos.queue.length === 0 ? <p className="fine">Nothing waiting.</p> : null}
         {pos.queue.map((op) => (
@@ -126,6 +135,7 @@ export function SettingsPage() {
         ))}
         {pos.syncError ? <p className="field-error">{pos.syncError}</p> : null}
       </section>
+      </div>
 
       <Drawer open={Boolean(qrTable)} title={qrTable ? `${qrTable.name} QR code` : 'QR code'} onClose={() => setQrTable(null)}>
         {qrTable ? <TableQr table={qrTable} /> : null}

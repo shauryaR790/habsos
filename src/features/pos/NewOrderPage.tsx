@@ -41,7 +41,7 @@ type Line = { lineId: string; menuItemId: string; quantity: number; addonIds: st
 type Dialog = 'covers' | 'customer' | 'assign' | 'note' | 'split' | 'part' | 'other' | 'advance' | 'discount' | null;
 
 export function NewOrderPage() {
-  useTitle('New Order');
+  useTitle('Order Now');
   const pos = usePos();
   const navigate = useNavigate();
   const [params] = useSearchParams();
