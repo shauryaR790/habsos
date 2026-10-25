@@ -1715,10 +1715,12 @@ body:has(.ad-app.ad-menu-page) .toasts {
   }
 
   html:has(.guest-flow-compact),
-  body:has(.guest-flow-compact) {
+  body:has(.guest-flow-compact),
+  body:has(.guest-flow-compact) #root {
     overflow: hidden;
     height: 100svh;
     max-height: 100svh;
+    overscroll-behavior: none;
   }
 
   .guest-flow-compact {
@@ -1784,7 +1786,42 @@ body:has(.ad-app.ad-menu-page) .toasts {
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-end {
     flex: 0 0 auto;
+    margin-top: 0 !important;
     overflow: hidden;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen):not(.cart-screen-empty) .cart-layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen):not(.cart-screen-empty) .guest-main.cart-main {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen):not(.cart-screen-empty) .cart-items-pane {
+    flex: 0 1 auto;
+    max-height: calc(100svh - 17.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen) > .cart-mobile-dock {
+    flex: 0 0 auto;
+    position: relative;
+    margin-top: auto;
+    width: 100%;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen) .checkout-dock.cart-mobile-dock {
+    position: relative;
+    bottom: auto;
   }
 
   .guest-flow-compact .guest-back {
@@ -1803,14 +1840,9 @@ body:has(.ad-app.ad-menu-page) .toasts {
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane::-webkit-scrollbar {
@@ -1819,11 +1851,6 @@ body:has(.ad-app.ad-menu-page) .toasts {
     height: 0;
   }
 
-  .guest-flow-compact.cart-screen:not(.checkout-screen) > .cart-mobile-dock {
-    flex: 0 0 auto;
-    position: relative;
-    margin-top: 0;
-  }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .guest-bar.cart-head {
     min-height: 72px;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Modal } from '../../components/Modal';
 import { TableScanner } from './TableScanner';
@@ -26,6 +26,11 @@ export function CartPage() {
   const editingLine = cart.lines.find((line) => line.lineId === editing) ?? null;
   const editingItem = cart.catalog?.items.find((item) => item.id === editingLine?.menuItemId) ?? null;
   const menuHref = `/menu${cart.tableCode ? `?table=${encodeURIComponent(cart.tableCode)}` : ''}`;
+
+  useLayoutEffect(() => {
+    if (desktop) return;
+    window.scrollTo(0, 0);
+  }, [desktop]);
 
   const openMenuItem = useCallback(
     (item: MenuItem) => {
@@ -139,24 +144,6 @@ export function CartPage() {
               </div>
             </main>
           </div>
-      {!desktop ? (
-        <div className="cart-empty-stage" aria-hidden="true">
-          <div className="cart-empty-cookie-deco">
-            <div className="cart-empty-orbit">
-              <div className="cart-empty-orbit-spin">
-                <img
-                  className="cart-empty-cookie"
-                  src="/items/380246da263c0bed37b936b3e48da5c6-removebg-preview.png"
-                  alt=""
-                  width={640}
-                  height={640}
-                  decoding="async"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {!desktop ? (
         <Link className="pay-bar cart-empty-foot" to={menuHref}>
           <span>Browse menu</span>
