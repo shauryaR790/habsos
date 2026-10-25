@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTitle } from '../../lib/useTitle';
 import { useCart } from './cart';
 import { AdGuestHeroNav } from './ad/AdGuestHeroNav';
@@ -20,6 +20,7 @@ type Props = {
 export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = true }: Props) {
   useTitle('After Dunes');
   const cart = useCart();
+  const [navTone, setNavTone] = useState<'hero' | 'surface'>('hero');
 
   const scrollToMenu = useCallback(() => {
     document.getElementById(GUEST_MENU_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -62,11 +63,26 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = 
     };
   }, [trackScroll]);
 
+  useEffect(() => {
+    const hero = document.querySelector('.ad-hero-panel');
+    const updateNavTone = () => {
+      const heroBottom = hero?.getBoundingClientRect().bottom ?? window.innerHeight;
+      setNavTone(heroBottom <= 72 ? 'surface' : 'hero');
+    };
+    updateNavTone();
+    window.addEventListener('scroll', updateNavTone, { passive: true });
+    window.addEventListener('resize', updateNavTone);
+    return () => {
+      window.removeEventListener('scroll', updateNavTone);
+      window.removeEventListener('resize', updateNavTone);
+    };
+  }, []);
+
   return (
     <>
       <AdGuestHeroNav
         cartCount={cart.count}
-        tone="hero"
+        tone={navTone}
         tableCode={cart.tableCode}
       />
       <div className="ad-app ad-guest-landing ad-guest-page">

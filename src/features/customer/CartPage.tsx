@@ -13,6 +13,7 @@ import { CartEmptyCarousel } from './CartEmptyCarousel';
 import { guestOpenItemPath } from './guestOpenItemLink';
 import { saveMenuScroll } from './guestMenuScroll';
 import { useGuestDesktop } from './useGuestDesktop';
+import { GuestFlowHeader } from './GuestFlowHeader';
 
 export function CartPage() {
   useTitle('Cart');
@@ -56,6 +57,9 @@ export function CartPage() {
   }, [cart]);
 
   const empty = cart.lines.length === 0;
+  const itemCount = cart.lineViews.length;
+  const itemsDensity =
+    itemCount >= 5 ? 'cart-items-pane--dense' : itemCount >= 3 ? 'cart-items-pane--compact' : '';
 
   const billDetails = cart.totals ? (
     <section className="ad-guest-drawer-bill" aria-label="Bill details">
@@ -80,21 +84,23 @@ export function CartPage() {
   const cartBody = (
     <>
       {cart.tableCode ? <p className="ad-guest-drawer-meta">Table {cart.tableCode}</p> : null}
-      <div className="cart-list ad-guest-drawer-cart-list">
-        {cart.lineViews.map((line) => (
-          <CartItem
-            key={line.lineId}
-            line={line}
-            imageUrl={cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl}
-            onInc={() => cart.setQty(line.lineId, line.quantity + 1)}
-            onDec={() => cart.setQty(line.lineId, line.quantity - 1)}
-            onRemove={() => cart.removeLine(line.lineId)}
-            onEdit={() => setEditing(line.lineId)}
-          />
-        ))}
+      <div className={`cart-items-pane${itemsDensity ? ` ${itemsDensity}` : ''}`.trim()}>
+        <div className="cart-list ad-guest-drawer-cart-list">
+          {cart.lineViews.map((line) => (
+            <CartItem
+              key={line.lineId}
+              line={line}
+              imageUrl={cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl}
+              onInc={() => cart.setQty(line.lineId, line.quantity + 1)}
+              onDec={() => cart.setQty(line.lineId, line.quantity - 1)}
+              onRemove={() => cart.removeLine(line.lineId)}
+              onEdit={() => setEditing(line.lineId)}
+            />
+          ))}
+        </div>
+        {cart.quoteError ? <p className="field-error" role="alert">{cart.quoteError}</p> : null}
       </div>
       {desktop ? billDetails : null}
-      {cart.quoteError ? <p className="field-error" role="alert">{cart.quoteError}</p> : null}
       {!cart.tableCode && desktop ? (
         <p className="ad-guest-drawer-hint">Scan your table QR from the menu to checkout.</p>
       ) : null}
@@ -113,6 +119,7 @@ export function CartPage() {
         desktop ? ' ad-guest-drawer-page cart-screen-empty--drawer' : ' guest-flow-compact'
       }`}
     >
+      <GuestFlowHeader title="Your bag" backTo={menuHref} />
           <div className="cart-layout">
             <main className="guest-main cart-main">
               <div className="cart-empty-stack">
@@ -178,14 +185,9 @@ export function CartPage() {
               desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
             }`}
           >
+            <GuestFlowHeader title="Your bag" backTo={menuHref} />
             <div className="cart-layout">
               <main className="guest-main cart-main">
-                {!desktop ? (
-                  <header className="cart-page-head">
-                    <h1 className="cart-page-title">Your bag</h1>
-                    {cart.tableCode ? <p className="cart-page-meta">Table {cart.tableCode}</p> : null}
-                  </header>
-                ) : null}
                 {cartBody}
               </main>
               {!desktop && cart.totals ? (
@@ -199,19 +201,13 @@ export function CartPage() {
                       <div className="grand"><dt>Total</dt><dd>{formatINR(cart.totals.total)}</dd></div>
                     </dl>
                   </footer>
-                  {cart.tableCode ? (
-                    <Link className="pay-bar cart-desktop-cta" to="/checkout">
-                      <span>Checkout</span>
-                      <span>{formatINR(cart.totals.total)}</span>
-                    </Link>
-                  ) : (
-                    <button type="button" className="pay-bar cart-desktop-cta" disabled>
-                      <span>Scan a table to checkout</span>
-                      <span>{formatINR(cart.totals.total)}</span>
-                    </button>
-                  )}
                   {!cart.tableCode ? (
-                    <p className="cart-summary-hint">Open the menu and scan your table QR to pay.</p>
+                    <>
+                      <button type="button" className="pay-bar cart-mobile-scan-cta" disabled>
+                        <span>Scan a table to checkout</span>
+                      </button>
+                      <p className="cart-summary-hint">Open the menu and scan your table QR to pay.</p>
+                    </>
                   ) : null}
                 </aside>
               ) : null}

@@ -6,6 +6,7 @@ import { GuestDrawerShell } from './GuestDrawerShell';
 import { OtpVerifyDialog } from './OtpVerifyDialog';
 import { OtpBoxes } from './OtpBoxes';
 import { useGuestDesktop } from './useGuestDesktop';
+import { GuestFlowHeader } from './GuestFlowHeader';
 import { TableScanner } from './TableScanner';
 import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { api, ApiError } from '../../lib/api';
@@ -80,6 +81,7 @@ export function CheckoutPage() {
           desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
         }`}
       >
+        <GuestFlowHeader title="Checkout" backTo="/cart" />
         <main className="guest-main checkout-main">
           <div className="cart-empty-stack">
             <div className="cart-empty">
@@ -296,14 +298,12 @@ export function CheckoutPage() {
         desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
       }${otp && !desktop ? ' checkout-screen-otp' : ''}`}
     >
+      <GuestFlowHeader
+        title={otp && !desktop ? 'Verify mobile' : 'Checkout'}
+        backTo="/cart"
+      />
       <div className="checkout-layout">
         <main className="guest-main checkout-main">
-          {!desktop ? (
-            <header className="checkout-page-head">
-              <h1 className="checkout-page-title">{otp ? 'Verify your mobile' : 'Checkout'}</h1>
-              {cart.tableCode ? <p className="checkout-page-meta">Table {cart.tableCode}</p> : null}
-            </header>
-          ) : null}
           {desktop && cart.tableCode ? <p className="ad-guest-drawer-meta">Table {cart.tableCode}</p> : null}
           {otp && !desktop ? (
             <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
@@ -328,20 +328,10 @@ export function CheckoutPage() {
                 <img className="otp-mural-sticker otp-mural-sticker--brew" src="/ad/brew-sticker-1.png" alt="" width={220} height={220} decoding="async" />
                 <img className="otp-mural-sticker" src="/ad/hero-sticker-heart.png" alt="" width={118} height={118} decoding="async" />
               </div>
-              <button
-                type="submit"
-                className="pay-bar checkout-desktop-cta"
-                disabled={busy || code.length !== 6}
-                aria-busy={busy}
-              >
-                <span>{busy ? 'Placing order…' : 'Place order'}</span>
-                {cart.totals ? <span>{formatINR(cart.totals.total)}</span> : null}
-              </button>
             </form>
           ) : null}
           {!otp ? (
             <form id="checkout-form" className="check-form" onSubmit={(event) => void start(event)}>
-              {!desktop ? <p className="table-stamp checkout-table-mobile">Table {cart.tableCode}</p> : null}
               <section className="check-guest">
                 <h2>Who’s at the table</h2>
                 <Input label="Name" value={name} autoComplete="name" required maxLength={80} onChange={(event) => setName(event.target.value)} />
