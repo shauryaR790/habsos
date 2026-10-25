@@ -69,19 +69,13 @@ export function CartPage() {
     </section>
   ) : null;
 
-  const checkoutFooter = cart.totals ? (
-    cart.tableCode ? (
+  const checkoutFooter =
+    cart.totals && cart.tableCode ? (
       <Link className="pay-bar ad-guest-drawer-checkout" to="/checkout" onClick={() => saveMenuScroll()}>
         <span>{formatINR(cart.totals.total)}</span>
         <span>Proceed to checkout</span>
       </Link>
-    ) : (
-      <button type="button" className="pay-bar ad-guest-drawer-checkout" disabled>
-        <span>{formatINR(cart.totals.total)}</span>
-        <span>Scan table to checkout</span>
-      </button>
-    )
-  ) : null;
+    ) : null;
 
   const cartBody = (
     <>
@@ -222,20 +216,12 @@ export function CartPage() {
                 </aside>
               ) : null}
             </div>
-            {!desktop ? (
+            {!desktop && cart.tableCode && cart.totals ? (
               <footer className="checkout-dock cart-mobile-dock">
-                {checkoutFooter ? (
-                  cart.tableCode ? (
-                    <Link className="pay-bar" to="/checkout">
-                      <span>Checkout</span>
-                      <span>{cart.totals ? formatINR(cart.totals.total) : ''}</span>
-                    </Link>
-                  ) : (
-                    <button type="button" className="pay-bar" disabled>
-                      <span>Scan a table to checkout</span>
-                    </button>
-                  )
-                ) : null}
+                <Link className="pay-bar" to="/checkout">
+                  <span>Checkout</span>
+                  <span>{formatINR(cart.totals.total)}</span>
+                </Link>
               </footer>
             ) : null}
           </div>
