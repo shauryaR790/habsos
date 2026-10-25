@@ -1702,9 +1702,16 @@ body:has(.ad-app.ad-menu-page) .toasts {
 @media (max-width: 1023px) {
   .ad-guest-flow-route:has(.guest-flow-compact),
   .ad-guest-flow-route--in:has(.guest-flow-compact) {
+    display: flex;
+    flex-direction: column;
     height: 100svh;
     max-height: 100svh;
     overflow: hidden;
+  }
+
+  .ad-guest-flow-route:has(.guest-flow-compact) > .guest-flow-compact {
+    flex: 1;
+    min-height: 0;
   }
 
   html:has(.guest-flow-compact),
@@ -1717,10 +1724,15 @@ body:has(.ad-app.ad-menu-page) .toasts {
   .guest-flow-compact {
     height: 100svh;
     max-height: 100svh;
-    min-height: 0;
+    min-height: 0 !important;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  .guest-flow-compact.cart-screen,
+  .guest-flow-compact.checkout-screen {
+    overscroll-behavior: none;
   }
 
   .guest-flow-head {
@@ -1729,46 +1741,50 @@ body:has(.ad-app.ad-menu-page) .toasts {
     grid-template-columns: minmax(4.5rem, auto) 1fr minmax(4.5rem, auto);
     align-items: center;
     gap: 6px;
-    padding: calc(8px + env(safe-area-inset-top)) 10px 10px;
-    background: var(--ad-palette-sand, #efedd4);
-    border-bottom: 1px solid rgba(63, 66, 34, 0.14);
+    margin: 0 0 20px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 0;
+    background: transparent;
+    border: none;
   }
 
   .guest-flow-back {
     grid-column: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    font-size: 14px;
-    font-weight: 650;
+    justify-self: start;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
     color: var(--ad-palette-coffee, #512c1a);
     text-decoration: none;
-  }
-
-  .guest-flow-back svg {
-    flex-shrink: 0;
   }
 
   .guest-flow-title {
     grid-column: 2;
     margin: 0;
-    font-family: var(--ad-hero-font, "Anton", "Roboto Condensed", "Arial Narrow", sans-serif);
-    font-size: 1.25rem;
-    font-weight: 400;
-    letter-spacing: 0.05em;
-    line-height: 1.05;
-    text-transform: uppercase;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-transform: none;
     text-align: center;
-    color: var(--ad-palette-olive, #3f4222);
+    color: var(--ad-palette-coffee, #512c1a);
   }
 
   .guest-flow-compact .cart-layout,
   .guest-flow-compact .checkout-layout {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-end {
+    flex: 0 0 auto;
+    overflow: hidden;
   }
 
   .guest-flow-compact .guest-back {
@@ -1857,60 +1873,21 @@ body:has(.ad-app.ad-menu-page) .toasts {
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--compact .cart-row {
-    grid-template-columns: 64px minmax(0, 1fr) auto;
-    gap: 8px;
-    padding: 8px 10px;
+    grid-template-columns: 68px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px;
     border-radius: 14px;
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--compact .cart-shot {
-    width: 64px;
-    height: 64px;
+    width: 68px;
+    height: 68px;
     border-radius: 12px;
-    padding: 4px;
+    padding: 5px;
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--compact .cart-copy h3 {
     font-size: 15px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-list {
-    gap: 5px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-row {
-    grid-template-columns: 52px minmax(0, 1fr) auto;
-    gap: 6px;
-    padding: 6px 8px;
-    border-radius: 12px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-shot {
-    width: 52px;
-    height: 52px;
-    border-radius: 10px;
-    padding: 3px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-copy h3 {
-    font-size: 14px;
-    line-height: 1.2;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-copy p,
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-edit,
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-remove {
-    font-size: 11px;
-    margin-top: 2px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .cart-side strong {
-    font-size: 13px;
-  }
-
-  .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-items-pane--dense .qty-step {
-    transform: scale(0.92);
-    transform-origin: center right;
   }
 
   .guest-flow-compact.cart-screen:not(.checkout-screen) .cart-page-title,

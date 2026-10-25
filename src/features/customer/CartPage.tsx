@@ -58,8 +58,7 @@ export function CartPage() {
 
   const empty = cart.lines.length === 0;
   const itemCount = cart.lineViews.length;
-  const itemsDensity =
-    itemCount >= 5 ? 'cart-items-pane--dense' : itemCount >= 3 ? 'cart-items-pane--compact' : '';
+  const itemsDensity = itemCount >= 4 ? 'cart-items-pane--compact' : '';
 
   const billDetails = cart.totals ? (
     <section className="ad-guest-drawer-bill" aria-label="Bill details">
@@ -83,7 +82,6 @@ export function CartPage() {
 
   const cartBody = (
     <>
-      {cart.tableCode ? <p className="ad-guest-drawer-meta">Table {cart.tableCode}</p> : null}
       <div className={`cart-items-pane${itemsDensity ? ` ${itemsDensity}` : ''}`.trim()}>
         <div className="cart-list ad-guest-drawer-cart-list">
           {cart.lineViews.map((line) => (
@@ -119,7 +117,7 @@ export function CartPage() {
         desktop ? ' ad-guest-drawer-page cart-screen-empty--drawer' : ' guest-flow-compact'
       }`}
     >
-      <GuestFlowHeader title="Your bag" backTo={menuHref} />
+      <GuestFlowHeader title="Cart" backTo={menuHref} />
           <div className="cart-layout">
             <main className="guest-main cart-main">
               <div className="cart-empty-stack">
@@ -185,7 +183,7 @@ export function CartPage() {
               desktop ? ' ad-guest-drawer-page' : ' guest-flow-compact'
             }`}
           >
-            <GuestFlowHeader title="Your bag" backTo={menuHref} />
+            <GuestFlowHeader title="Cart" backTo={menuHref} />
             <div className="cart-layout">
               <main className="guest-main cart-main">
                 {cartBody}

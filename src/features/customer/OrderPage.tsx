@@ -82,7 +82,6 @@ export function OrderPage() {
       <div className="order-placed-details">
         <p className="order-placed-order-no">
           #{order.orderNumber}
-          {order.tableName ? ` · Table ${order.tableName}` : ''}
         </p>
         <ul className="order-placed-lines">
           {order.items.map((item) => (

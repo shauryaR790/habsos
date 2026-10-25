@@ -304,7 +304,6 @@ export function CheckoutPage() {
       />
       <div className="checkout-layout">
         <main className="guest-main checkout-main">
-          {desktop && cart.tableCode ? <p className="ad-guest-drawer-meta">Table {cart.tableCode}</p> : null}
           {otp && !desktop ? (
             <form id="otp-form" className="otp-stage" onSubmit={(event) => void verify(event)}>
               <div className="otp-core">
