@@ -655,6 +655,11 @@ function zonedOffsetMs(date, timeZone) {
   const asUtc = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"), read("second"));
   return asUtc - date.getTime();
 }
+function tableLabel(name) {
+  const match = /^T(\d+)$/i.exec(name.trim());
+  if (match) return String(Number(match[1]));
+  return name;
+}
 function paymentPreferenceFromNotes(notes) {
   const raw = noteValue(notes, "PAY_PREF").toUpperCase();
   if (raw === "UPI" || raw === "CARD") return raw;
@@ -2846,6 +2851,12 @@ function createTable(input) {
   const qr = name.replace(/\s+/g, "").toUpperCase();
   const clash = get("SELECT id FROM tables WHERE cafe_id = ? AND (name = ? OR qr_code = ?)", [CAFE_ID, name, qr]);
   if (clash) throw new AppError(409, "TABLE", "A table with that name already exists.");
+  const label = tableLabel(name);
+  const labelClash = all(
+    "SELECT name FROM tables WHERE cafe_id = ? AND COALESCE(area, 'Ground Floor') = ?",
+    [CAFE_ID, area]
+  ).find((entry) => tableLabel(entry.name) === label);
+  if (labelClash) throw new AppError(409, "TABLE", `Table ${label} already exists on ${area}.`);
   const id = `table_${qr.toLowerCase()}`;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   run(
@@ -3704,6 +3715,37 @@ var ITEM_POS = {
   item_paneer: { num: "20", alpha: "MGC", favorite: true }
 };
 
+// server/dedupeTables.ts
+function dedupeTableLabels() {
+  const rows = all(
+    "SELECT id, name, COALESCE(area, 'Ground Floor') AS area FROM tables WHERE cafe_id = ?",
+    [CAFE_ID]
+  );
+  const keep = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const key = `${row.area}::${tableLabel(row.name)}`;
+    const canonical = /^T\d+$/i.test(row.name.trim());
+    const prev = keep.get(key);
+    if (!prev) {
+      keep.set(key, row.id);
+      continue;
+    }
+    const prevRow = rows.find((entry) => entry.id === prev);
+    const prevCanonical = prevRow ? /^T\d+$/i.test(prevRow.name.trim()) : false;
+    if (canonical && !prevCanonical) keep.set(key, row.id);
+  }
+  for (const row of rows) {
+    const key = `${row.area}::${tableLabel(row.name)}`;
+    if (keep.get(key) === row.id) continue;
+    const target = keep.get(key);
+    if (!target) continue;
+    const targetName = rows.find((entry) => entry.id === target)?.name ?? row.name;
+    run("UPDATE orders SET table_id = ?, table_name = ? WHERE table_id = ?", [target, targetName, row.id]);
+    run("UPDATE reservations SET table_id = ? WHERE table_id = ?", [target, row.id]);
+    run("DELETE FROM tables WHERE id = ?", [row.id]);
+  }
+}
+
 // server/seed-inventory.ts
 var STOCK = [
   { id: "inv_coffee_beans", name: "Arabica Coffee Beans", sku: "RM-COF-01", category: "Raw material", unit: "kg", qty: 8.5, reorder: 2, cost: 850, supplier: "Blue Tokai" },
@@ -3939,6 +3981,7 @@ function ensureTables(now) {
     );
     run("UPDATE tables SET area = ? WHERE cafe_id = ? AND qr_code = ?", [table.area, CAFE_ID, table.qr]);
   }
+  dedupeTableLabels();
 }
 async function seed() {
   const now = (/* @__PURE__ */ new Date()).toISOString();

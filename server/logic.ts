@@ -42,6 +42,7 @@ import {
   shiftYmd,
   splitAmounts,
   statusMessage,
+  tableLabel,
   zonedDayStart,
 } from '../shared/domain';
 import { defaultGuestMetaForCategory, parseIngredientList, serializeIngredients } from '../shared/menuDisplay';
@@ -1435,6 +1436,12 @@ export function createTable(input: { name: string; area?: string }): TableInfo {
   const qr = name.replace(/\s+/g, '').toUpperCase();
   const clash = get<{ id: string }>('SELECT id FROM tables WHERE cafe_id = ? AND (name = ? OR qr_code = ?)', [CAFE_ID, name, qr]);
   if (clash) throw new AppError(409, 'TABLE', 'A table with that name already exists.');
+  const label = tableLabel(name);
+  const labelClash = all<{ name: string }>(
+    'SELECT name FROM tables WHERE cafe_id = ? AND COALESCE(area, \'Ground Floor\') = ?',
+    [CAFE_ID, area],
+  ).find((entry) => tableLabel(entry.name) === label);
+  if (labelClash) throw new AppError(409, 'TABLE', `Table ${label} already exists on ${area}.`);
   const id = `table_${qr.toLowerCase()}`;
   const now = new Date().toISOString();
   run(

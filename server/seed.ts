@@ -6,6 +6,7 @@ import { LEGACY_MENU_DISPLAY, serializeIngredients } from '../shared/menuDisplay
 import { env } from './env';
 import { CAFE_ID } from './ids';
 import { createReservation, createStaffOrder, markPaid, retimeOrder, setTableStage, transitionOrder } from './logic';
+import { dedupeTableLabels } from './dedupeTables';
 import { ensureInventorySeed } from './seed-inventory';
 
 function ensureMenuDisplayMeta() {
@@ -154,6 +155,7 @@ function ensureTables(now: string) {
     );
     run('UPDATE tables SET area = ? WHERE cafe_id = ? AND qr_code = ?', [table.area, CAFE_ID, table.qr]);
   }
+  dedupeTableLabels();
 }
 
 export async function seed() {
