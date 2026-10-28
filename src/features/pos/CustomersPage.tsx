@@ -21,6 +21,7 @@ export function CustomersPage() {
   const [mobile, setMobile] = useState('');
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<{ customer: CustomerSummary; orders: Order[] } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<CustomerSummary | null>(null);
 
   const customers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -40,6 +41,19 @@ export function CustomersPage() {
       setName('');
       setMobile('');
       setAdd(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmRemove() {
+    if (!removeTarget) return;
+    setBusy(true);
+    try {
+      await pos.removeCustomer(removeTarget.id);
+      if (history?.customer.id === removeTarget.id) setHistory(null);
+      if (shown === removeTarget.id) setShown(null);
+      setRemoveTarget(null);
     } finally {
       setBusy(false);
     }
@@ -115,11 +129,22 @@ export function CustomersPage() {
                 >
                   Order
                 </button>
+                <button type="button" onClick={() => setRemoveTarget(customer)}>Remove</button>
               </div>
             </article>
           ))}
         </div>
       )}
+
+      {removeTarget ? (
+        <Modal open title="Remove customer" onClose={() => setRemoveTarget(null)}>
+          <p>Remove <strong>{removeTarget.name}</strong> from the customer list? Past bills stay in reports; only the profile is deleted.</p>
+          <div className="run-acts">
+            <Button variant="ghost" onClick={() => setRemoveTarget(null)}>Cancel</Button>
+            <Button disabled={busy} onClick={() => void confirmRemove()}>Remove</Button>
+          </div>
+        </Modal>
+      ) : null}
 
       {add ? (
         <Modal open title="Add customer" onClose={() => setAdd(false)}>

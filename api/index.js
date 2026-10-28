@@ -2985,6 +2985,12 @@ function clearAllCustomers() {
   run("UPDATE orders SET customer_id = NULL WHERE cafe_id = ?", [CAFE_ID]);
   run("DELETE FROM customers WHERE cafe_id = ?", [CAFE_ID]);
 }
+function deleteCustomer(customerId) {
+  const row = get("SELECT id FROM customers WHERE id = ? AND cafe_id = ?", [customerId, CAFE_ID]);
+  if (!row) throw new AppError(404, "CUSTOMER", "Customer not found.");
+  run("UPDATE orders SET customer_id = NULL WHERE customer_id = ?", [customerId]);
+  run("DELETE FROM customers WHERE id = ?", [customerId]);
+}
 function listCustomers() {
   return all(
     `SELECT c.id, c.name, c.mobile, c.last_order_at,
@@ -3554,6 +3560,10 @@ app.delete("/api/customers", requireAuth, wrap((_req, res) => {
   clearAllCustomers();
   res.json({ ok: true, customers: listCustomers() });
 }));
+app.delete("/api/customers/:id", requireAuth, wrap((req, res) => {
+  deleteCustomer(idOf(req.params.id));
+  res.json({ ok: true, customers: listCustomers() });
+}));
 app.post("/api/customers", requireAuth, wrap((req, res) => {
   const body = customerCreateSchema.parse(req.body);
   res.status(201).json({ customer: createCustomer(body.name, body.mobile) });
@@ -3743,6 +3753,20 @@ function dedupeTableLabels() {
     run("UPDATE orders SET table_id = ?, table_name = ? WHERE table_id = ?", [target, targetName, row.id]);
     run("UPDATE reservations SET table_id = ? WHERE table_id = ?", [target, row.id]);
     run("DELETE FROM tables WHERE id = ?", [row.id]);
+  }
+}
+
+// server/purgeCustomers.ts
+var BLOCKED_NAME = /nigga/i;
+function purgeBlockedCustomers() {
+  const rows = all(
+    "SELECT id, name FROM customers WHERE cafe_id = ?",
+    [CAFE_ID]
+  );
+  for (const row of rows) {
+    if (!BLOCKED_NAME.test(row.name)) continue;
+    run("UPDATE orders SET customer_id = NULL WHERE customer_id = ?", [row.id]);
+    run("DELETE FROM customers WHERE id = ?", [row.id]);
   }
 }
 
@@ -3994,6 +4018,7 @@ async function seed() {
     ensureMenuDisplayMeta();
     ensureDemoScenarios();
     ensureInventorySeed();
+    purgeBlockedCustomers();
     return;
   }
   run("INSERT INTO cafes (id, name, tax_bps, currency, timezone, created_at) VALUES (?, ?, 500, ?, ?, ?)", [CAFE_ID, "After Dunes", "INR", "Asia/Kolkata", now]);
@@ -4067,6 +4092,7 @@ async function seed() {
   ensureMenuDisplayMeta();
   ensureDemoScenarios();
   ensureInventorySeed();
+  purgeBlockedCustomers();
 }
 function insertAddon(id, groupId, name, price, sortOrder) {
   run("INSERT INTO addons (id, group_id, name, price, is_available, sort_order) VALUES (?, ?, ?, ?, 1, ?)", [id, groupId, name, price, sortOrder]);

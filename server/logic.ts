@@ -1581,6 +1581,13 @@ export function clearAllCustomers() {
   run('DELETE FROM customers WHERE cafe_id = ?', [CAFE_ID]);
 }
 
+export function deleteCustomer(customerId: string) {
+  const row = get<{ id: string }>('SELECT id FROM customers WHERE id = ? AND cafe_id = ?', [customerId, CAFE_ID]);
+  if (!row) throw new AppError(404, 'CUSTOMER', 'Customer not found.');
+  run('UPDATE orders SET customer_id = NULL WHERE customer_id = ?', [customerId]);
+  run('DELETE FROM customers WHERE id = ?', [customerId]);
+}
+
 export function listCustomers(): CustomerSummary[] {
   return all<{ id: string; name: string; mobile: string; order_count: number; spent: number; last_order_at: string | null }>(
     `SELECT c.id, c.name, c.mobile, c.last_order_at,

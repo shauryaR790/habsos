@@ -7,6 +7,7 @@ import { env } from './env';
 import { CAFE_ID } from './ids';
 import { createReservation, createStaffOrder, markPaid, retimeOrder, setTableStage, transitionOrder } from './logic';
 import { dedupeTableLabels } from './dedupeTables';
+import { purgeBlockedCustomers } from './purgeCustomers';
 import { ensureInventorySeed } from './seed-inventory';
 
 function ensureMenuDisplayMeta() {
@@ -169,6 +170,7 @@ export async function seed() {
     ensureMenuDisplayMeta();
     ensureDemoScenarios();
     ensureInventorySeed();
+    purgeBlockedCustomers();
     return;
   }
   run('INSERT INTO cafes (id, name, tax_bps, currency, timezone, created_at) VALUES (?, ?, 500, ?, ?, ?)', [CAFE_ID, 'After Dunes', 'INR', 'Asia/Kolkata', now]);
@@ -248,6 +250,7 @@ export async function seed() {
   ensureMenuDisplayMeta();
   ensureDemoScenarios();
   ensureInventorySeed();
+  purgeBlockedCustomers();
 }
 
 function insertAddon(id: string, groupId: string, name: string, price: number, sortOrder: number) {

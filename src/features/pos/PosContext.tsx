@@ -85,6 +85,7 @@ type PosValue = {
   }) => Promise<MenuItem>;
   moveOrder: (orderId: string, tableId: string) => Promise<void>;
   createCustomer: (input: { name: string; mobile: string }) => Promise<CustomerSummary>;
+  removeCustomer: (customerId: string) => Promise<void>;
   createReservation: (input: { tableId: string; customerName: string; customerMobile?: string; covers: number; startsAt?: string }) => Promise<TableInfo['reservation']>;
   cancelReservation: (id: string) => Promise<void>;
   saveItem: (item: MenuItem) => Promise<void>;
@@ -755,6 +756,20 @@ export function PosProvider({ children }: { children: ReactNode }) {
         return result.customer;
       } catch (error) {
         pushToast(error instanceof Error ? error.message : 'Could not save the customer.', 'err');
+        throw error;
+      }
+    },
+    removeCustomer: async (customerId) => {
+      if (!navigator.onLine) {
+        pushToast('Connect to remove a customer.', 'err');
+        throw new Error('Connect to remove a customer.');
+      }
+      try {
+        await api<{ ok: true }>(`/api/customers/${encodeURIComponent(customerId)}`, { method: 'DELETE' });
+        await pull();
+        pushToast('Customer removed');
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : 'Could not remove the customer.', 'err');
         throw error;
       }
     },
