@@ -112,7 +112,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
     setScanning(false);
     if (landingSection) {
       navigate(`/?table=${encodeURIComponent(code)}#${menuSectionId}`, { replace: true });
-      window.requestAnimationFrame(() => smoothScrollToId(menuSectionId));
+      window.setTimeout(() => smoothScrollToId(menuSectionId), 80);
       return;
     }
     navigate(`/menu?table=${encodeURIComponent(code)}`);

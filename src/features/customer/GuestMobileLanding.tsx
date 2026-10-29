@@ -29,14 +29,14 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = 
 
   useEffect(() => {
     if (!scrollToMenuOnMount) return;
-    const id = window.requestAnimationFrame(() => scrollToMenu());
-    return () => window.cancelAnimationFrame(id);
+    const id = window.setTimeout(() => scrollToMenu(), 80);
+    return () => window.clearTimeout(id);
   }, [scrollToMenuOnMount, scrollToMenu]);
 
   useEffect(() => {
     if (window.location.hash !== `#${GUEST_MENU_SECTION_ID}`) return;
-    const id = window.requestAnimationFrame(() => scrollToMenu());
-    return () => window.cancelAnimationFrame(id);
+    const id = window.setTimeout(() => scrollToMenu(), 80);
+    return () => window.clearTimeout(id);
   }, [scrollToMenu]);
 
   useEffect(() => {
@@ -87,7 +87,16 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = 
         tableCode={cart.tableCode}
       />
       <div className="ad-app ad-guest-landing ad-guest-page">
-      <a className="skip" href={`#${GUEST_MENU_SECTION_ID}`}>Skip to menu</a>
+      <a
+        className="skip"
+        href={`#${GUEST_MENU_SECTION_ID}`}
+        onClick={(event) => {
+          event.preventDefault();
+          scrollToMenu();
+        }}
+      >
+        Skip to menu
+      </a>
       <section className="ad-hero-panel" aria-label="Welcome">
         <AdMobileShell className="ad-viewport--hero">
           <div className="ad-hero">

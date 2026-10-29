@@ -15,6 +15,7 @@ import { RECOMMENDED } from './menuFacts';
 import { TableScanner } from './TableScanner';
 import { GuestHeader } from './GuestHeader';
 import { useGuestMenuItemDeepLink } from './guestOpenItemLink';
+import { smoothScrollToId } from './guestSmoothScroll';
 
 export function MenuPageClassic() {
   useTitle('Menu');
@@ -107,10 +108,7 @@ export function MenuPageClassic() {
   function openSection(id: string) {
     setPane(id === 'cat_drinks' ? 'drinks' : 'food');
     window.setTimeout(() => {
-      document.getElementById(`cat-${id}`)?.scrollIntoView({
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        block: 'start',
-      });
+      smoothScrollToId(`cat-${id}`);
     }, 40);
   }
 
