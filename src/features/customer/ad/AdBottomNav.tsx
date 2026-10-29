@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { formatINR } from '../../../../shared/domain';
 import { saveMenuScroll } from '../guestMenuScroll';
+import { smoothScrollToId } from '../guestSmoothScroll';
 
 export function AdBottomNav({
   active,
@@ -29,7 +30,18 @@ export function AdBottomNav({
       aria-hidden={!visible}
     >
       {menuAnchor ? (
-        <a href={menuAnchor} className={menuClass}>Menu</a>
+        <a
+          href={menuAnchor}
+          className={menuClass}
+          onClick={(event) => {
+            const id = menuAnchor.startsWith('#') ? menuAnchor.slice(1) : '';
+            if (!id) return;
+            event.preventDefault();
+            smoothScrollToId(id);
+          }}
+        >
+          Menu
+        </a>
       ) : (
         <Link to="/menu" className={menuClass}>Menu</Link>
       )}

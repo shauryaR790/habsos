@@ -107,7 +107,10 @@ export function MenuPageClassic() {
   function openSection(id: string) {
     setPane(id === 'cat_drinks' ? 'drinks' : 'food');
     window.setTimeout(() => {
-      document.getElementById(`cat-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById(`cat-${id}`)?.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'start',
+      });
     }, 40);
   }
 

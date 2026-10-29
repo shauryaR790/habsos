@@ -16,6 +16,7 @@ import { AdMobileShell } from './ad/AdMobileShell';
 import { AdProductCard } from './ad/AdProductCard';
 import { brewCardStickerForIndex } from './ad/brewCardStickers';
 import { useGuestMenuItemDeepLink } from './guestOpenItemLink';
+import { smoothScrollToId } from './guestSmoothScroll';
 
 type MenuPageMobileProps = {
   /** Menu block on the single-page mobile landing (hero + menu scroll). */
@@ -111,9 +112,7 @@ export function MenuPageMobile({ landingSection = false, menuSectionId = 'order-
     setScanning(false);
     if (landingSection) {
       navigate(`/?table=${encodeURIComponent(code)}#${menuSectionId}`, { replace: true });
-      window.requestAnimationFrame(() => {
-        document.getElementById(menuSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
+      window.requestAnimationFrame(() => smoothScrollToId(menuSectionId));
       return;
     }
     navigate(`/menu?table=${encodeURIComponent(code)}`);

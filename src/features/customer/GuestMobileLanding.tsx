@@ -7,6 +7,7 @@ import { MenuPageMobile } from './MenuPageMobile';
 
 import { GUEST_MENU_SECTION_ID } from './guestLandingConstants';
 import { readMenuScroll, saveMenuScroll } from './guestMenuScroll';
+import { smoothScrollToId } from './guestSmoothScroll';
 
 export { GUEST_MENU_SECTION_ID };
 
@@ -23,7 +24,7 @@ export function GuestMobileLanding({ scrollToMenuOnMount = false, trackScroll = 
   const [navTone, setNavTone] = useState<'hero' | 'surface'>('hero');
 
   const scrollToMenu = useCallback(() => {
-    document.getElementById(GUEST_MENU_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    smoothScrollToId(GUEST_MENU_SECTION_ID);
   }, []);
 
   useEffect(() => {

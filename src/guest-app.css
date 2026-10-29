@@ -2,6 +2,22 @@
 
 html:has(.ad-guest-landing),
 html:has(.ad-guest-cart),
+html:has(.ad-guest-order),
+html:has(.ad-menu-page) {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.ad-guest-landing),
+  html:has(.ad-guest-cart),
+  html:has(.ad-guest-order),
+  html:has(.ad-menu-page) {
+    scroll-behavior: auto;
+  }
+}
+
+html:has(.ad-guest-landing),
+html:has(.ad-guest-cart),
 html:has(.ad-guest-order) {
   --ad-palette-sand: #efedd4;
   --ad-palette-olive: #3f4222;
@@ -309,7 +325,7 @@ body:has(.ad-guest-landing) #root::-webkit-scrollbar {
 }
 
 .ad-menu-landing-section {
-  scroll-margin-top: 0;
+  scroll-margin-top: 72px;
   min-height: 100dvh;
 }
 
@@ -653,6 +669,8 @@ body:has(.ad-guest-landing) #root::-webkit-scrollbar {
   overflow-x: auto;
   padding: 0 18px 4px;
   scrollbar-width: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 .ad-chips::-webkit-scrollbar { display: none; }
