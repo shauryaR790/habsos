@@ -43,6 +43,7 @@ export function InventoryPage() {
   const pos = usePos();
   const [tab, setTab] = useState<Tab>('stock');
   const [data, setData] = useState<Bundle | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [addItem, setAddItem] = useState(false);
@@ -66,18 +67,41 @@ export function InventoryPage() {
   const [recipeMenuId, setRecipeMenuId] = useState('');
   const [recipeLines, setRecipeLines] = useState<MenuRecipeLine[]>([]);
 
-  const load = useCallback(async () => {
-    if (pos.conn === 'OFFLINE') return;
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (pos.conn === 'OFFLINE') {
+      setLoadError('Go online to manage stock.');
+      return false;
+    }
+    setLoadError(null);
     try {
       const bundle = await api<Bundle>('/api/inventory');
       setData(bundle);
-    } catch {
-      pushToast('Could not load inventory', 'err');
+      setLoadError(null);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load inventory';
+      setLoadError(message);
+      if (!opts?.quiet) pushToast(message, 'err');
+      return false;
     }
   }, [pos.conn]);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    let retryTimer = 0;
+    const boot = async () => {
+      const ok = await load({ quiet: true });
+      if (cancelled || ok) return;
+      // One quiet retry covers a brief server blip without toast spam.
+      retryTimer = window.setTimeout(() => {
+        if (!cancelled) void load();
+      }, 1200);
+    };
+    void boot();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -252,7 +276,10 @@ export function InventoryPage() {
       </div>
 
       {!data ? (
-        <EmptyState title="Loading inventory" body={pos.conn === 'OFFLINE' ? 'Go online to manage stock.' : 'Pulling stock from server…'} />
+        <EmptyState
+          title={loadError ? 'Inventory unavailable' : 'Loading inventory'}
+          body={loadError ?? (pos.conn === 'OFFLINE' ? 'Go online to manage stock.' : 'Pulling stock from server…')}
+        />
       ) : tab === 'stock' ? (
         items.length === 0 ? (
           <EmptyState title="No stock items" body="Add raw materials or restart the server to load the demo pantry." />

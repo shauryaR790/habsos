@@ -2931,12 +2931,29 @@ body:has(.order-placed-screen) {
     padding: 14px 18px 18px;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ad-guest-drawer-body:has(.cart-screen-empty--drawer),
+  .ad-guest-drawer-body:has(.ad-guest-drawer-page.ad-guest-cart:not(.cart-screen-empty)) {
+    overflow: hidden;
   }
 
   .ad-guest-drawer-body::-webkit-scrollbar {
     display: none;
     width: 0;
     height: 0;
+  }
+
+  /* Fill the drawer body so empty state can center and bill can pin above the CTA */
+  .ad-guest-drawer-body > .ad-guest-drawer-page {
+    flex: 1 1 auto;
+    align-self: stretch;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .ad-guest-drawer-meta {
@@ -2964,9 +2981,11 @@ body:has(.order-placed-screen) {
   }
 
   .ad-guest-drawer-bill {
-    margin-top: 18px;
+    margin-top: auto;
+    flex-shrink: 0;
     padding-top: 14px;
     border-top: 1px dashed rgba(63, 66, 34, 0.18);
+    background: transparent;
   }
 
   .ad-guest-drawer-bill-title {
@@ -3009,6 +3028,7 @@ body:has(.order-placed-screen) {
   }
 
   .ad-guest-drawer-hint {
+    flex-shrink: 0;
     margin: 12px 0 0;
     font-size: 13px;
     text-align: center;
@@ -3074,17 +3094,62 @@ body:has(.order-placed-screen) {
     background: transparent;
   }
 
-  .ad-guest-drawer-page .cart-layout,
-  .ad-guest-drawer-page .checkout-layout {
-    display: block;
+  /* Beat styles.css desktop cart grid (align-items:start / flex:unset) */
+  .ad-guest-drawer-body .ad-guest-drawer-page .cart-layout,
+  .ad-guest-drawer-body .ad-guest-drawer-page .checkout-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
+    max-width: none;
     margin: 0;
     padding: 0;
+    gap: 0;
+    grid-template-columns: none;
   }
 
-  .ad-guest-drawer-page .guest-main {
+  .ad-guest-drawer-body .ad-guest-drawer-page .guest-main.cart-main,
+  .ad-guest-drawer-body .ad-guest-drawer-page .guest-main.checkout-main {
     padding: 0;
     width: 100%;
+    max-width: none;
+    margin: 0;
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page:not(.cart-screen-empty) .cart-items-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page:not(.cart-screen-empty) .check-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .ad-guest-drawer-body .ad-guest-drawer-page:not(.cart-screen-empty) .cart-items-pane::-webkit-scrollbar,
+  .ad-guest-drawer-body .ad-guest-drawer-page:not(.cart-screen-empty) .check-form::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* Bill sits under scrollable lines, pinned just above the drawer CTA */
+  .ad-guest-drawer-body .ad-guest-drawer-page:not(.cart-screen-empty) .ad-guest-drawer-bill {
+    margin-top: auto;
   }
 
   .ad-guest-drawer-order ul {
@@ -3118,40 +3183,50 @@ body:has(.order-placed-screen) {
     object-fit: cover;
   }
 
-  /* Empty bag drawer — compact layout (not full-screen hero) */
+  /* Empty bag drawer — title + carousel centered in the panel */
   .ad-guest-drawer-page.cart-screen-empty--drawer,
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer {
-    display: block;
-    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    align-self: stretch;
     min-height: 0;
-    height: auto;
+    height: 100%;
   }
 
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-layout {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     align-items: stretch;
-    justify-content: flex-start;
+    justify-content: center;
     padding: 0;
   }
 
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .guest-main.cart-main {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     align-items: stretch;
-    justify-content: flex-start;
+    justify-content: center;
   }
 
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-empty-stack {
     flex: 0 0 auto;
-    align-items: stretch;
-    justify-content: flex-start;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
     padding: 0;
     width: 100%;
+    min-height: 0;
+    margin-top: auto;
+    margin-bottom: auto;
   }
 
   .ad-guest-drawer-body .cart-empty-title--drawer {
-    margin: 0 0 14px;
+    margin: 0;
     padding: 0;
     max-width: none;
     font-family: "Bodoni Moda", Georgia, serif;
@@ -3169,7 +3244,7 @@ body:has(.order-placed-screen) {
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty--drawer .cart-empty-carousel {
     width: calc(100% + 36px);
     max-width: none;
-    margin: 8px -18px 0;
+    margin: 0 -18px;
   }
 
   .ad-guest-drawer-body .ad-guest-drawer-page.cart-screen-empty .cart-empty-carousel-card {
