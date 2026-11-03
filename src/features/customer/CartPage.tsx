@@ -14,12 +14,14 @@ import { guestOpenItemPath } from './guestOpenItemLink';
 import { saveMenuScroll } from './guestMenuScroll';
 import { useGuestDesktop } from './useGuestDesktop';
 import { GuestFlowHeader } from './GuestFlowHeader';
+import { useExitAnimate } from '../../lib/useExitAnimate';
 
 export function CartPage() {
   useTitle('Cart');
   const cart = useCart();
   const navigate = useNavigate();
   const desktop = useGuestDesktop();
+  const { leaving, requestRemove } = useExitAnimate(300);
   const [editing, setEditing] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const tax = cart.catalog?.cafe.taxBps ?? 500;
@@ -94,9 +96,10 @@ export function CartPage() {
               key={line.lineId}
               line={line}
               imageUrl={cart.catalog?.items.find((item) => item.id === line.menuItemId)?.imageUrl}
+              leaving={Boolean(leaving[line.lineId])}
               onInc={() => cart.setQty(line.lineId, line.quantity + 1)}
               onDec={() => cart.setQty(line.lineId, line.quantity - 1)}
-              onRemove={() => cart.removeLine(line.lineId)}
+              onRemove={() => requestRemove(line.lineId, () => cart.removeLine(line.lineId))}
               onEdit={() => setEditing(line.lineId)}
             />
           ))}

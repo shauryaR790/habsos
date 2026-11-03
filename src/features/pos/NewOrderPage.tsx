@@ -32,6 +32,7 @@ import { collectRazorpayPayment } from '../../lib/razorpayCheckout';
 import { writeCurrentOrder } from '../../lib/currentOrder';
 import { useTitle } from '../../lib/useTitle';
 import type { Bootstrap } from '../customer/cart';
+import { useExitAnimate } from '../../lib/useExitAnimate';
 import { ModifierDialog } from './ModifierDialog';
 import { usePos } from './PosContext';
 
@@ -84,6 +85,7 @@ export function NewOrderPage() {
   const [cashTender, setCashTender] = useState('');
   const [orderId, setOrderId] = useState<string | null>(null);
   const loadedRef = useRef<string | null>(null);
+  const { leaving, requestRemove } = useExitAnimate(280);
 
   const catalog = useMemo<Bootstrap | null>(() => {
     if (!pos.cafe) return null;
@@ -564,7 +566,7 @@ export function NewOrderPage() {
             <button
               key={entry.id}
               type="button"
-              className={`bill-tile ${entry.isVeg ? 'veg' : 'nveg'}`}
+              className={`bill-tile motion-pop ${entry.isVeg ? 'veg' : 'nveg'}`}
               onClick={() => addItem(entry.id)}
             >
               {entry.name}
@@ -647,8 +649,15 @@ export function NewOrderPage() {
                 {lines.map((line, index) => {
                   const row = priced?.lines[index];
                   return (
-                    <li key={line.lineId}>
-                      <button type="button" className="bill-x" onClick={() => setLines((current) => current.filter((entry) => entry.lineId !== line.lineId))} aria-label="Remove item">×</button>
+                    <li key={line.lineId} className={`motion-item${leaving[line.lineId] ? ' is-leaving' : ''}`}>
+                      <button
+                        type="button"
+                        className="bill-x"
+                        onClick={() => requestRemove(line.lineId, () => setLines((current) => current.filter((entry) => entry.lineId !== line.lineId)))}
+                        aria-label="Remove item"
+                      >
+                        ×
+                      </button>
                       <button type="button" className="bill-line-name" onClick={() => setEditLineId(line.lineId)}>
                         <strong>{row?.name ?? pos.items.find((entry) => entry.id === line.menuItemId)?.name}</strong>
                         {row?.addons.length ? <i>{row.addons.map((addon) => addon.name).join(', ')}</i> : null}

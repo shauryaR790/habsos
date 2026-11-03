@@ -105,7 +105,7 @@ export function OrderCard({
 
   return (
     <article
-      className={`hang hang-${hangTone(order)}${late ? ' is-late' : ''}`}
+      className={`hang hang-${hangTone(order)} motion-card${late ? ' is-late' : ''}`}
       role="link"
       tabIndex={0}
       onClick={onOpen}

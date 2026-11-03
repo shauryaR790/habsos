@@ -1351,17 +1351,58 @@ async function verifyPassword(password, stored) {
   if (actual.length !== derived.length) return false;
   return (0, import_node_crypto2.timingSafeEqual)(actual, derived);
 }
+function sign(body) {
+  return (0, import_node_crypto2.createHmac)("sha256", env.sessionSecret).update(body).digest("base64url");
+}
+function safeEqual(a, b) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return (0, import_node_crypto2.timingSafeEqual)(left, right);
+}
+function loadUser(userId) {
+  const row = get("SELECT id, name, email, role FROM users WHERE id = ?", [userId]);
+  return row ?? null;
+}
 function createSession(userId) {
-  const id = (0, import_node_crypto2.randomUUID)();
-  const now = /* @__PURE__ */ new Date();
-  const expires = new Date(now.getTime() + SESSION_MS).toISOString();
-  run("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [id, userId, expires, now.toISOString()]);
+  const exp = Date.now() + SESSION_MS;
+  const body = `v1.${userId}.${exp}`;
+  const id = `${body}.${sign(body)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    run(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+      [`sig_${userId}_${exp}`, userId, new Date(exp).toISOString(), now]
+    );
+  } catch {
+  }
   return { id, maxAge: Math.floor(SESSION_MS / 1e3) };
 }
 function destroySession(id) {
-  run("DELETE FROM sessions WHERE id = ?", [id]);
+  try {
+    run("DELETE FROM sessions WHERE id = ?", [id]);
+  } catch {
+  }
+  const parsed = parseSigned(id);
+  if (parsed) {
+    try {
+      run("DELETE FROM sessions WHERE user_id = ? AND id LIKE ?", [parsed.userId, "sig_%"]);
+    } catch {
+    }
+  }
 }
-function getSessionUser(token) {
+function parseSigned(token) {
+  const parts = token.split(".");
+  if (parts.length !== 4 || parts[0] !== "v1") return null;
+  const [, userId, expStr, sig] = parts;
+  if (!userId || !expStr || !sig) return null;
+  const body = `v1.${userId}.${expStr}`;
+  if (!safeEqual(sign(body), sig)) return null;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp < Date.now()) return null;
+  return { userId, exp };
+}
+function legacySessionUser(token) {
   const row = get(
     `SELECT u.id, u.name, u.email, u.role, s.expires_at
      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
@@ -1373,6 +1414,17 @@ function getSessionUser(token) {
     return null;
   }
   return { id: row.id, name: row.name, email: row.email, role: row.role };
+}
+function getSessionUser(token) {
+  const signed = parseSigned(token);
+  if (signed) return loadUser(signed.userId);
+  return legacySessionUser(token);
+}
+function touchSession(token) {
+  const user = getSessionUser(token);
+  if (!user) return null;
+  const next = createSession(user.id);
+  return { user, token: next.id, maxAge: next.maxAge };
 }
 function readCookie(header, name) {
   if (!header) return null;
@@ -3439,12 +3491,17 @@ app.post("/api/auth/logout", (req, res) => {
 });
 app.get("/api/auth/me", (req, res) => {
   const token = readCookie(req.headers.cookie, "habsos_session");
-  const user = token ? getSessionUser(token) : null;
-  if (!user) {
+  if (!token) {
     res.status(401).json({ error: "Sign in required.", code: "AUTH" });
     return;
   }
-  res.json({ user });
+  const touched = touchSession(token);
+  if (!touched) {
+    res.status(401).json({ error: "Sign in required.", code: "AUTH" });
+    return;
+  }
+  res.setHeader("Set-Cookie", sessionCookie(touched.token, touched.maxAge));
+  res.json({ user: touched.user });
 });
 app.get("/api/sync/snapshot", requireAuth, wrap((_req, res) => {
   res.json(snapshot());

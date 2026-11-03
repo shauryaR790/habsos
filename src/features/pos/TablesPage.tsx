@@ -332,7 +332,7 @@ export function TablesPage() {
                   <button
                     key={table.id}
                     type="button"
-                    className={`tv-tbl tv-tbl-${state}`}
+                    className={`tv-tbl tv-tbl-${state} motion-card`}
                     onClick={() => openTable(table)}
                     onContextMenu={(event) => {
                       event.preventDefault();

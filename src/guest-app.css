@@ -3387,4 +3387,85 @@ html:has(.ad-guest-cart) .modal-root .modal {
   .pay-bar:active:not(:disabled) {
     transform: none;
   }
+
+  .ad-brew-card.motion-card,
+  .ad-brew-card.is-added,
+  .cart-row.motion-item,
+  .cart-row.motion-item.is-leaving {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+@keyframes ad-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ad-card-added {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+
+@keyframes ad-item-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin: 0;
+  }
+}
+
+.ad-brew-card.motion-card {
+  animation: ad-card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease;
+}
+
+.ad-brew-card.motion-card:nth-child(2) { animation-delay: 0.04s; }
+.ad-brew-card.motion-card:nth-child(3) { animation-delay: 0.08s; }
+.ad-brew-card.motion-card:nth-child(4) { animation-delay: 0.12s; }
+.ad-brew-card.motion-card:nth-child(5) { animation-delay: 0.16s; }
+.ad-brew-card.motion-card:nth-child(6) { animation-delay: 0.2s; }
+
+.ad-brew-card.is-added .ad-brew-card-body {
+  animation: ad-card-added 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ad-brew-add {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease;
+}
+
+.ad-brew-add:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.cart-row.motion-item {
+  animation: ad-card-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease;
+  overflow: hidden;
+}
+
+.cart-row.motion-item.is-leaving {
+  animation: ad-item-out 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.qty-step button,
+.cart-remove {
+  transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+.qty-step button:active,
+.cart-remove:active {
+  transform: scale(0.92);
 }

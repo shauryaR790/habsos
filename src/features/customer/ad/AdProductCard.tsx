@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { MenuItem } from '../../../../shared/domain';
 import { formatINR } from '../../../../shared/domain';
 import { itemIngredientLine } from '../menuFacts';
@@ -18,9 +18,16 @@ export function AdProductCard({
   cornerSticker?: string;
 }) {
   const subtitle = itemIngredientLine(item);
+  const [bump, setBump] = useState(false);
+
+  function add() {
+    onAddToCart(item);
+    setBump(true);
+    window.setTimeout(() => setBump(false), 420);
+  }
 
   return (
-    <article className={`ad-brew-card${item.isAvailable ? '' : ' is-sold'}`}>
+    <article className={`ad-brew-card motion-card${item.isAvailable ? '' : ' is-sold'}${bump ? ' is-added' : ''}`}>
       <div className="ad-brew-card-body">
         <button
           type="button"
@@ -72,7 +79,7 @@ export function AdProductCard({
             <button
               type="button"
               className="ad-brew-add"
-              onClick={() => onAddToCart(item)}
+              onClick={add}
               disabled={!item.isAvailable}
             >
               Add to cart

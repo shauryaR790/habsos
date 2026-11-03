@@ -17,6 +17,7 @@ export function CartItem({
   onDec,
   onRemove,
   onEdit,
+  leaving = false,
 }: {
   line: DisplayLine;
   imageUrl?: string | null;
@@ -24,9 +25,10 @@ export function CartItem({
   onDec: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  leaving?: boolean;
 }) {
   return (
-    <article className="cart-row">
+    <article className={`cart-row motion-item${leaving ? ' is-leaving' : ''}`}>
       {imageUrl ? <img className="cart-shot" src={imageUrl} alt="" /> : <span className="cart-shot" />}
       <div className="cart-copy">
         <h3>{line.name}</h3>

@@ -1,9 +1,11 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
+import { LoadingState } from '../../components/LoadingState';
+import { clearStaffSession, hasStaffSession, markStaffSession } from './staffSession';
 
 /** Demo counter PIN — signs in as the seeded staff user (see server env defaults). */
 const DEMO_PIN = '2580';
@@ -19,9 +21,30 @@ export function LoginPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let cancel = false;
+    void (async () => {
+      try {
+        await api<{ user: { id: string } }>('/api/auth/me');
+        if (cancel) return;
+        markStaffSession();
+        navigate('/pos', { replace: true });
+      } catch {
+        if (cancel) return;
+        if (hasStaffSession()) clearStaffSession();
+        setChecking(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [navigate]);
 
   async function loginWith(emailValue: string, passwordValue: string) {
     await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: emailValue, password: passwordValue }) });
+    markStaffSession();
     navigate('/pos', { replace: true });
   }
 
@@ -57,6 +80,14 @@ export function LoginPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (checking) {
+    return (
+      <main className="login">
+        <LoadingState label="Opening register" />
+      </main>
+    );
   }
 
   return (

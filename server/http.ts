@@ -44,7 +44,7 @@ import {
   saveMenuRecipes,
   updateInventoryItem,
 } from './inventory';
-import { clearSessionCookie, createSession, destroySession, getSessionUser, readCookie, sessionCookie, verifyPassword } from './auth';
+import { clearSessionCookie, createSession, destroySession, getSessionUser, readCookie, sessionCookie, touchSession, verifyPassword } from './auth';
 import { get } from './db';
 import { dueTotal, OPEN_STATUSES } from '../shared/domain';
 import { exposeDevOtp, isProduction, razorpayEnabled } from './env';
@@ -281,12 +281,17 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', (req, res) => {
   const token = readCookie(req.headers.cookie, 'habsos_session');
-  const user = token ? getSessionUser(token) : null;
-  if (!user) {
+  if (!token) {
     res.status(401).json({ error: 'Sign in required.', code: 'AUTH' });
     return;
   }
-  res.json({ user });
+  const touched = touchSession(token);
+  if (!touched) {
+    res.status(401).json({ error: 'Sign in required.', code: 'AUTH' });
+    return;
+  }
+  res.setHeader('Set-Cookie', sessionCookie(touched.token, touched.maxAge));
+  res.json({ user: touched.user });
 });
 
 app.get('/api/sync/snapshot', requireAuth, wrap((_req, res) => {
