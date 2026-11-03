@@ -2880,37 +2880,48 @@ body:has(.order-placed-screen) {
 
   .ad-guest-drawer-head {
     flex-shrink: 0;
-    display: flex;
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 12px;
-    padding: 14px 18px 10px;
+    gap: 8px;
+    padding: 14px 18px 12px;
     border-bottom: 1px solid rgba(63, 66, 34, 0.1);
     background: transparent;
   }
 
   .ad-guest-drawer-back {
+    grid-column: 1;
+    justify-self: start;
+    z-index: 1;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     border: 0;
     background: transparent;
-    font: inherit;
-    font-size: 14px;
-    font-weight: 650;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
     color: var(--ad-palette-coffee, #512c1a);
     cursor: pointer;
     padding: 4px 0;
   }
 
   .ad-guest-drawer-title {
+    grid-column: 2;
     margin: 0;
-    flex: 1;
-    font-family: var(--ad-hero-font);
-    font-size: 1.35rem;
-    font-weight: 400;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: var(--ad-palette-olive, #3f4222);
+    justify-self: center;
+    text-align: center;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-size: 1.15rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-transform: none;
+    color: var(--ad-palette-coffee, #512c1a);
   }
 
   .ad-guest-drawer-body {
@@ -2959,13 +2970,15 @@ body:has(.order-placed-screen) {
   }
 
   .ad-guest-drawer-bill-title {
-    margin: 0 0 10px;
-    font-family: var(--ad-hero-font);
+    margin: 0 0 12px;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
     font-size: 1.05rem;
-    font-weight: 400;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ad-palette-olive, #3f4222);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    text-align: center;
+    color: var(--ad-palette-coffee, #512c1a);
   }
 
   .ad-guest-drawer-bill dl {
@@ -2998,14 +3011,30 @@ body:has(.order-placed-screen) {
   .ad-guest-drawer-hint {
     margin: 12px 0 0;
     font-size: 13px;
+    text-align: center;
     color: var(--ad-palette-cactus, #7a8450);
   }
 
   .ad-guest-drawer-foot {
     flex-shrink: 0;
+    margin-top: auto;
     padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
     border-top: 1px solid rgba(63, 66, 34, 0.12);
     background: transparent;
+  }
+
+  .ad-guest-drawer-panel .check-guest > h2,
+  .ad-guest-drawer-panel .check-order > h2:not(.ad-guest-drawer-bill-title),
+  .ad-guest-drawer-panel .cart-empty h2 {
+    margin: 0 0 12px;
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+    text-align: center;
+    text-transform: none;
+    color: var(--ad-palette-coffee, #512c1a);
   }
 
   .ad-guest-drawer-checkout.pay-bar {
@@ -3025,9 +3054,13 @@ body:has(.order-placed-screen) {
     cursor: pointer;
   }
 
-  .ad-guest-drawer-checkout.pay-bar:disabled {
-    opacity: 0.55;
+  .ad-guest-drawer-checkout.pay-bar:disabled,
+  .ad-guest-drawer-checkout.pay-bar.is-faded {
+    opacity: 0.42;
     cursor: not-allowed;
+    filter: grayscale(0.15);
+    box-shadow: none;
+    pointer-events: none;
   }
 
   .ad-guest-drawer-checkout.pay-bar span {
@@ -3121,14 +3154,15 @@ body:has(.order-placed-screen) {
     margin: 0 0 14px;
     padding: 0;
     max-width: none;
-    font-family: var(--ad-hero-font, "Anton", "Roboto Condensed", "Arial Narrow", sans-serif);
-    font-size: 1.55rem;
-    font-weight: 400;
-    line-height: 1.08;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    text-align: left;
-    color: var(--ad-palette-olive, #3f4222);
+    font-family: "Bodoni Moda", Georgia, serif;
+    font-style: italic;
+    font-size: 1.35rem;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    text-align: center;
+    color: var(--ad-palette-coffee, #512c1a);
     text-shadow: none;
   }
 

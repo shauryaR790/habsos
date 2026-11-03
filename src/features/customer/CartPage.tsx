@@ -79,13 +79,19 @@ export function CartPage() {
     </section>
   ) : null;
 
-  const checkoutFooter =
-    cart.totals && cart.tableCode ? (
+  const checkoutFooter = cart.totals ? (
+    cart.tableCode ? (
       <Link className="pay-bar ad-guest-drawer-checkout" to="/checkout" onClick={() => saveMenuScroll()}>
         <span>{formatINR(cart.totals.total)}</span>
         <span>Proceed to checkout</span>
       </Link>
-    ) : null;
+    ) : (
+      <button type="button" className="pay-bar ad-guest-drawer-checkout is-faded" disabled aria-disabled="true">
+        <span>{formatINR(cart.totals.total)}</span>
+        <span>Scan table to checkout</span>
+      </button>
+    )
+  ) : null;
 
   const cartBody = (
     <>
@@ -108,7 +114,7 @@ export function CartPage() {
       </div>
       {desktop ? billDetails : null}
       {!cart.tableCode && desktop ? (
-        <p className="ad-guest-drawer-hint">Scan your table QR from the menu to checkout.</p>
+        <p className="ad-guest-drawer-hint">Scan your table QR on the menu — checkout unlocks when the table is linked.</p>
       ) : null}
     </>
   );
