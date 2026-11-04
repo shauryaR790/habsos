@@ -363,11 +363,13 @@ function insertPricedOrder(input: {
 }) {
   const now = new Date().toISOString();
   const orderNumber = takeNumber();
+  const openSessionId =
+    get<{ id: string }>(`SELECT id FROM pos_sessions WHERE status = 'OPEN' ORDER BY opened_at DESC LIMIT 1`)?.id ?? null;
   run(
     `INSERT INTO orders (
       id, order_number, cafe_id, table_id, table_name, customer_id, customer_name, customer_mobile,
-      status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at, session_id
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       orderNumber,
@@ -387,6 +389,7 @@ function insertPricedOrder(input: {
       now,
       now,
       now,
+      openSessionId,
     ],
   );
   writeQuoteLines(input.id, input.quote);

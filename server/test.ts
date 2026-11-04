@@ -175,7 +175,7 @@ assert.throws(() => {
   });
 }, /not available/);
 
-logic.updateMenuItem('item_espresso', { name: 'Classic Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: false });
+logic.updateMenuItem('item_espresso', { name: 'Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: false });
 assert.throws(() => {
   logic.createStaffOrder({
     tableCode: 'T04',
@@ -184,7 +184,7 @@ assert.throws(() => {
     items: [{ menuItemId: 'item_espresso', quantity: 1, addonIds: [] }],
   });
 }, /sold out/);
-logic.updateMenuItem('item_espresso', { name: 'Classic Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: true });
+logic.updateMenuItem('item_espresso', { name: 'Espresso', description: 'A short, intense shot of coffee.', price: 150, isAvailable: true });
 
 const clientKey = crypto.randomUUID();
 const pending = await logic.startCheckout({

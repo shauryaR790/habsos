@@ -52,6 +52,18 @@ import { AppError, applySyncBatch, cancelCheckout, cancelReservation, clearAllCu
 import { createRazorpayOrder, publicRazorpayKey, RazorpayError, verifyRazorpayPayment } from './razorpay';
 import { otpProvider } from './otp';
 import { openStream, touchDevice } from './realtime';
+import {
+  cashMove,
+  closeSession,
+  closingPreview,
+  getPosConfig,
+  listFloors,
+  listSessions,
+  openSession,
+  posDashboard,
+  saveFloors,
+  sessionStats,
+} from './posSession';
 
 declare global {
   namespace Express {
@@ -507,6 +519,51 @@ app.get('/api/inventory/recipes/:menuItemId', requireAuth, wrap((req, res) => {
 app.put('/api/inventory/recipes/:menuItemId', requireAuth, wrap((req, res) => {
   const body = menuRecipesSchema.parse(req.body);
   res.json({ lines: saveMenuRecipes(idOf(req.params.menuItemId), body.lines) });
+}));
+
+app.get('/api/pos/dashboard', requireAuth, wrap((_req, res) => {
+  res.json(posDashboard());
+}));
+
+app.post('/api/pos/session/open', requireAuth, wrap((req, res) => {
+  const openingCash = typeof req.body?.openingCash === 'number' ? req.body.openingCash : Number(req.body?.openingCash ?? 0);
+  const configId = typeof req.body?.configId === 'string' ? req.body.configId : undefined;
+  const session = openSession({ openingCash, userName: req.user?.name ?? 'Staff', configId });
+  res.json({ session, stats: sessionStats(session.id), config: getPosConfig(session.configId) });
+}));
+
+app.post('/api/pos/session/close', requireAuth, wrap((req, res) => {
+  const countedCash = typeof req.body?.countedCash === 'number' ? req.body.countedCash : Number(req.body?.countedCash ?? 0);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes : '';
+  const session = closeSession({ countedCash, notes });
+  res.json({ session });
+}));
+
+app.get('/api/pos/session/closing', requireAuth, wrap((_req, res) => {
+  res.json(closingPreview());
+}));
+
+app.post('/api/pos/cash-move', requireAuth, wrap((req, res) => {
+  const kind = req.body?.kind === 'OUT' ? 'OUT' : 'IN';
+  const amount = typeof req.body?.amount === 'number' ? req.body.amount : Number(req.body?.amount ?? 0);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason : '';
+  res.json({
+    move: cashMove({ kind, amount, reason, actor: req.user?.name ?? 'Staff' }),
+  });
+}));
+
+app.get('/api/pos/sessions', requireAuth, wrap((_req, res) => {
+  res.json({ sessions: listSessions() });
+}));
+
+app.get('/api/pos/floors', requireAuth, wrap((_req, res) => {
+  res.json(listFloors());
+}));
+
+app.put('/api/pos/floors', requireAuth, wrap((req, res) => {
+  const floors = Array.isArray(req.body?.floors) ? req.body.floors : [];
+  const geometry = Array.isArray(req.body?.geometry) ? req.body.geometry : [];
+  res.json(saveFloors({ floors, geometry }));
 }));
 
 app.use('/api', (_req, res) => {

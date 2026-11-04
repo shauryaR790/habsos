@@ -274,6 +274,67 @@ function migrate(database: DatabaseSync) {
   addColumn(database, 'menu_items', 'menu_subtitle', "TEXT NOT NULL DEFAULT ''");
   addColumn(database, 'menu_items', 'kcal_label', "TEXT NOT NULL DEFAULT ''");
   addColumn(database, 'menu_items', 'ingredients_json', "TEXT NOT NULL DEFAULT '[]'");
+  addColumn(database, 'orders', 'session_id', 'TEXT');
+  addColumn(database, 'order_items', 'course', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn(database, 'order_items', 'sent_at', 'TEXT');
+  addColumn(database, 'customers', 'email', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'street', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'street2', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'city', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'zip', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'state', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'country', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'gstin', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'barcode', "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, 'customers', 'tags', "TEXT NOT NULL DEFAULT ''");
+  database.exec(`
+CREATE TABLE IF NOT EXISTS pos_configs (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  is_restaurant INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS pos_sessions (
+  id TEXT PRIMARY KEY,
+  config_id TEXT NOT NULL REFERENCES pos_configs(id),
+  status TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  closed_at TEXT,
+  opened_by TEXT NOT NULL,
+  opening_cash REAL NOT NULL DEFAULT 0,
+  closing_cash REAL,
+  counted_cash REAL,
+  notes TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS pos_cash_moves (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES pos_sessions(id),
+  kind TEXT NOT NULL,
+  amount REAL NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS floors (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  background TEXT NOT NULL DEFAULT 'wood'
+);
+CREATE TABLE IF NOT EXISTS table_geometry (
+  table_id TEXT PRIMARY KEY REFERENCES tables(id),
+  floor_id TEXT NOT NULL REFERENCES floors(id),
+  x REAL NOT NULL DEFAULT 0,
+  y REAL NOT NULL DEFAULT 0,
+  w REAL NOT NULL DEFAULT 80,
+  h REAL NOT NULL DEFAULT 80,
+  seats INTEGER NOT NULL DEFAULT 4,
+  shape TEXT NOT NULL DEFAULT 'square',
+  color TEXT NOT NULL DEFAULT '#28a745'
+);
+`);
+  addColumn(database, 'pos_sessions', 'sequence', 'INTEGER NOT NULL DEFAULT 0');
   const userVersion = (database.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   if (userVersion < 2) {
     database.exec('UPDATE orders SET customer_id = NULL');

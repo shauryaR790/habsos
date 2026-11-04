@@ -36,6 +36,11 @@ export const SYNC_OPERATIONS = [
   'UPDATE_MENU',
   'UPDATE_ADDON',
   'UPDATE_TABLE',
+  'OPEN_SESSION',
+  'CLOSE_SESSION',
+  'CASH_MOVE',
+  'SEND_LINES',
+  'UPSERT_FLOOR',
 ] as const;
 
 export type SyncOperation = (typeof SYNC_OPERATIONS)[number];
@@ -346,6 +351,75 @@ export function formatINR(amount: number): string {
   }).format(amount);
 }
 
+/** Odoo-style money with two decimals: ₹ 38.80 */
+export function formatOdooINR(amount: number): string {
+  const n = Number.isFinite(amount) ? amount : 0;
+  return `₹ ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export type PosSessionStatus = 'OPEN' | 'CLOSING' | 'CLOSED';
+
+export type PosConfig = {
+  id: string;
+  name: string;
+  isRestaurant: boolean;
+};
+
+export type PosSession = {
+  id: string;
+  configId: string;
+  configName: string;
+  /** Per-register sequence used in Odoo-style Session ID (e.g. Restaurant/00002). */
+  sequence: number;
+  status: PosSessionStatus;
+  openedAt: string;
+  closedAt: string | null;
+  openedBy: string;
+  openingCash: number;
+  closingCash: number | null;
+  countedCash: number | null;
+  notes: string;
+};
+
+export type PosSessionStats = {
+  openingCash: number;
+  soldTotal: number;
+  soldOrders: number;
+  ongoingTotal: number;
+  ongoingOrders: number;
+  /** Cumulative sold totals across the open session (oldest → newest). */
+  salesSeries: number[];
+};
+
+export type PosCashMove = {
+  id: string;
+  sessionId: string;
+  kind: 'IN' | 'OUT';
+  amount: number;
+  reason: string;
+  createdAt: string;
+  actor: string;
+};
+
+export type FloorPlan = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  background: string;
+};
+
+export type TableGeometry = {
+  tableId: string;
+  floorId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  seats: number;
+  shape: 'square' | 'round' | 'rect';
+  color: string;
+};
+
 export function formatTime(iso: string, timeZone = 'Asia/Kolkata'): string {
   return new Date(iso).toLocaleTimeString('en-IN', {
     hour: 'numeric',
@@ -450,7 +524,14 @@ export type Order = {
   payments: Payment[];
 };
 
-export const TABLE_AREAS = ['Ground Floor', 'Basement', 'Party Hall'] as const;
+export const TABLE_AREAS = [
+  'Ground Floor',
+  'Basement',
+  'Party Hall',
+  'Terrace',
+  'Rooftop',
+  'Lounge',
+] as const;
 export type TableArea = (typeof TABLE_AREAS)[number];
 
 export type TableVisualState = 'blank' | 'running' | 'printed' | 'paid' | 'running-kot' | 'reserved' | 'otp-wait';
@@ -515,7 +596,7 @@ export function registerPath(input: {
   if (input.customerName) params.set('name', input.customerName);
   if (input.customerMobile) params.set('mobile', input.customerMobile);
   if (input.covers !== undefined && input.covers !== null && String(input.covers) !== '') params.set('covers', String(input.covers));
-  return `/pos/orders/new?${params.toString()}`;
+  return `/pos/app/register?${params.toString()}`;
 }
 
 export type GuestPaymentPreference = 'DESK' | 'UPI' | 'CARD';

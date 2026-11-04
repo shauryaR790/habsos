@@ -1,18 +1,61 @@
 import { useMemo, useState } from 'react';
 import {
   LINE_NOTE_MAX,
-  LINE_QTY_MAX,
-  LINE_QTY_MIN,
   PriceError,
   clampLineQuantity,
-  formatINR,
+  formatOdooINR,
   priceCart,
   type AddonGroup,
   type MenuItem,
 } from '../../../shared/domain';
-import { Button } from '../../components/Button';
-import { TextArea } from '../../components/Input';
-import { Modal } from '../../components/Modal';
+
+const ACCENT_BY_NAME: Record<string, string> = {
+  'Cheese Burger': '#e83e8c',
+  'Bacon Burger': '#fd7e14',
+  'Coca-Cola': '#20c997',
+  Water: '#0d6efd',
+  'Minute Maid': '#20c997',
+  'Milkshake Banana': '#20c997',
+  Espresso: '#20c997',
+  'Green Tea': '#0dcaf0',
+  Fanta: '#fd7e14',
+};
+
+function optionAccent(name: string, index: number, drinkish: boolean) {
+  if (ACCENT_BY_NAME[name]) return ACCENT_BY_NAME[name];
+  if (drinkish) {
+    const drinks = ['#20c997', '#0d6efd', '#20c997', '#0dcaf0', '#fd7e14'];
+    return drinks[index % drinks.length];
+  }
+  const food = ['#e83e8c', '#fd7e14', '#ffc107', '#e83e8c', '#6f42c1'];
+  return food[index % food.length];
+}
+
+function isCardGroup(group: AddonGroup) {
+  return /combo|burger|drink|roll|sushi/i.test(group.id) || /burger|drink|roll|sushi/i.test(group.name);
+}
+
+function groupIncludedLabel(group: AddonGroup) {
+  if (group.minSelect === group.maxSelect && group.minSelect > 0) {
+    return `${group.minSelect} included`;
+  }
+  if (group.minSelect === 0 && group.maxSelect === 1) return 'optional';
+  if (group.minSelect === 0) return `up to ${group.maxSelect}`;
+  return `choose ${group.minSelect}–${group.maxSelect}`;
+}
+
+function defaultSelection(groups: AddonGroup[], initial?: string[]) {
+  if (initial?.length) return initial;
+  const picked: string[] = [];
+  for (const group of groups) {
+    if (group.minSelect <= 0) continue;
+    const available = group.addons.filter((a) => a.isAvailable);
+    for (let i = 0; i < Math.min(group.minSelect, available.length); i += 1) {
+      picked.push(available[i].id);
+    }
+  }
+  return picked;
+}
 
 export function ModifierDialog({
   item,
@@ -29,10 +72,14 @@ export function ModifierDialog({
   onClose: () => void;
   onSave: (value: { quantity: number; addonIds: string[]; notes: string }) => void;
 }) {
-  const linked = groups.filter((group) => item.addonGroupIds.includes(group.id));
-  const [quantity, setQuantity] = useState(() => clampLineQuantity(initial?.quantity ?? 1));
-  const [selected, setSelected] = useState<string[]>(() => initial?.addonIds ?? []);
-  const [notes, setNotes] = useState(initial?.notes ?? '');
+  const linked = useMemo(
+    () => groups.filter((group) => item.addonGroupIds.includes(group.id)).sort((a, b) => a.sortOrder - b.sortOrder),
+    [groups, item.addonGroupIds],
+  );
+  const comboLayout = /combo/i.test(item.name) || linked.some(isCardGroup);
+  const [quantity] = useState(() => clampLineQuantity(initial?.quantity ?? 1));
+  const [selected, setSelected] = useState<string[]>(() => defaultSelection(linked, initial?.addonIds));
+  const [notes] = useState(initial?.notes ?? '');
 
   const preview = useMemo(() => {
     try {
@@ -48,12 +95,14 @@ export function ModifierDialog({
     }
   }, [groups, item, notes, quantity, selected, taxBps]);
 
-  function pick(group: AddonGroup, addonId: string | null) {
+  function pick(group: AddonGroup, addonId: string) {
     const ids = new Set(group.addons.map((addon) => addon.id));
     setSelected((current) => {
       const rest = current.filter((id) => !ids.has(id));
-      if (!addonId) return rest;
-      if (group.maxSelect === 1) return [...rest, addonId];
+      if (group.maxSelect === 1) {
+        if (current.includes(addonId) && group.minSelect === 0) return rest;
+        return [...rest, addonId];
+      }
       if (current.includes(addonId)) return current.filter((id) => id !== addonId);
       const count = current.filter((id) => ids.has(id)).length;
       if (count >= group.maxSelect) return current;
@@ -61,101 +110,116 @@ export function ModifierDialog({
     });
   }
 
-  function setExactQty(value: number) {
-    setQuantity(clampLineQuantity(value));
-  }
+  const title = comboLayout
+    ? item.name
+    : `${item.name} | ${formatOdooINR(item.price)}`;
 
   return (
-    <Modal open className="mod-dialog" title={item.name} onClose={onClose}>
-      <div className="mod">
-        <p className="mod-meta">
-          <span className={item.isVeg ? 'mod-diet veg' : 'mod-diet nveg'} />
-          {formatINR(item.price)}
-          {item.shortcutNum || item.shortcutAlpha ? (
-            <em>{[item.shortcutNum, item.shortcutAlpha].filter(Boolean).join(' · ')}</em>
-          ) : null}
-        </p>
-
-        <div className="mod-qty">
-          <span>Quantity</span>
-          <span className="bill-qty">
-            <button type="button" onClick={() => setExactQty(quantity - 1)} aria-label="Decrease quantity">−</button>
-            <input
-              aria-label="Quantity"
-              inputMode="numeric"
-              value={quantity}
-              onChange={(event) => {
-                const raw = event.target.value.replace(/\D/g, '');
-                if (raw === '') return;
-                setExactQty(Number(raw));
-              }}
-            />
-            <button type="button" onClick={() => setExactQty(quantity + 1)} aria-label="Increase quantity">+</button>
-          </span>
-          <small>{LINE_QTY_MIN}–{LINE_QTY_MAX}</small>
+    <div className="o-modal-backdrop o-mod-backdrop" onClick={onClose} role="presentation">
+      <div
+        className={`o-modal o-mod${comboLayout ? ' o-mod--combo' : ''}`}
+        role="dialog"
+        aria-label={item.name}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="o-mod__head">
+          <h2>{title}</h2>
+          <button type="button" className="o-mod__close" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
         </div>
 
-        {linked.map((group) => {
-          const chosen = group.addons.filter((addon) => selected.includes(addon.id));
-          const none = chosen.length === 0;
-          return (
-            <section key={group.id} className="mod-group">
-              <header>
-                <h3>{group.name}</h3>
-                <span>{groupHint(group)}</span>
-              </header>
-              <div className="mod-opts">
-                {group.maxSelect === 1 ? (
-                  <button type="button" className={none ? 'on' : ''} aria-pressed={none} onClick={() => pick(group, null)}>
-                    <strong>{group.id.includes('milk') ? 'Cafe milk' : 'Regular'}</strong>
-                    <em>{formatINR(0)}</em>
-                  </button>
-                ) : null}
-                {group.addons.map((addon) => {
-                  const on = selected.includes(addon.id);
-                  const blocked = group.maxSelect > 1 && !on && chosen.length >= group.maxSelect;
-                  return (
-                    <button
-                      key={addon.id}
-                      type="button"
-                      className={on ? 'on' : ''}
-                      aria-pressed={on}
-                      disabled={!addon.isAvailable || blocked}
-                      onClick={() => pick(group, addon.id)}
-                    >
-                      <strong>{addon.name}</strong>
-                      <em>{addon.price ? `+${formatINR(addon.price)}` : formatINR(0)}</em>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+        <div className="o-mod__body">
+          {linked.map((group) => {
+            const chosen = group.addons.filter((addon) => selected.includes(addon.id));
+            const cards = comboLayout || isCardGroup(group);
+            const drinkish = /drink/i.test(group.name) || /drink/i.test(group.id);
+            return (
+              <section key={group.id} className="o-mod__section">
+                <header className="o-mod__section-head">
+                  <h3>{group.name}</h3>
+                  {cards ? <em>{groupIncludedLabel(group)}</em> : null}
+                </header>
+                <div className={cards ? 'o-mod__cards' : 'o-mod__pills'}>
+                  {group.addons.map((addon, index) => {
+                    const on = selected.includes(addon.id);
+                    const blocked = group.maxSelect > 1 && !on && chosen.length >= group.maxSelect;
+                    if (cards) {
+                      return (
+                        <button
+                          key={addon.id}
+                          type="button"
+                          className={`o-mod__card${on ? ' is-on' : ''}`}
+                          style={{ borderBottomColor: optionAccent(addon.name, index, drinkish) }}
+                          aria-pressed={on}
+                          disabled={!addon.isAvailable || blocked}
+                          onClick={() => pick(group, addon.id)}
+                        >
+                          <span className="o-mod__card-name">{addon.name}</span>
+                          {addon.price > 0 ? (
+                            <span className="o-mod__badge">+ {formatOdooINR(addon.price)}</span>
+                          ) : null}
+                        </button>
+                      );
+                    }
+                    return (
+                      <button
+                        key={addon.id}
+                        type="button"
+                        className={`o-mod__pill${on ? ' is-on' : ''}`}
+                        aria-pressed={on}
+                        disabled={!addon.isAvailable || blocked}
+                        onClick={() => pick(group, addon.id)}
+                      >
+                        {addon.name}
+                        {addon.price > 0 ? ` (+${formatOdooINR(addon.price)})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
 
-        <TextArea
-          label="Item comment"
-          value={notes}
-          maxLength={LINE_NOTE_MAX}
-          rows={2}
-          onChange={(event) => setNotes(event.target.value.slice(0, LINE_NOTE_MAX))}
-        />
-        {preview.error ? <p className="field-error" role="alert">{preview.error}</p> : null}
-        <div className="mod-foot">
-          <strong>{preview.total === null ? formatINR(item.price * quantity) : formatINR(preview.total)}</strong>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button disabled={Boolean(preview.error)} onClick={() => onSave({ quantity, addonIds: selected, notes: notes.trim() })}>
-            {initial ? 'Update' : 'Add'}
-          </Button>
+          {!linked.length ? (
+            <p className="o-mod__empty">No customizations for this item.</p>
+          ) : null}
+
+          {preview.error ? <p className="o-mod__error" role="alert">{preview.error}</p> : null}
+        </div>
+
+        <div className={`o-mod__foot${comboLayout ? ' o-mod__foot--combo' : ''}`}>
+          {comboLayout ? (
+            <>
+              <button
+                type="button"
+                className="o-mod__add"
+                disabled={Boolean(preview.error)}
+                onClick={() => onSave({ quantity, addonIds: selected, notes: notes.trim().slice(0, LINE_NOTE_MAX) })}
+              >
+                {initial ? 'Update order' : 'Add to order'}
+              </button>
+              <strong className="o-mod__total">
+                Total: {preview.total === null ? formatOdooINR(item.price * quantity) : formatOdooINR(preview.total)}
+              </strong>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="o-mod__add"
+                disabled={Boolean(preview.error)}
+                onClick={() => onSave({ quantity, addonIds: selected, notes: notes.trim().slice(0, LINE_NOTE_MAX) })}
+              >
+                {initial ? 'Update' : 'Add'}
+              </button>
+              <button type="button" className="o-mod__discard" onClick={onClose}>
+                Discard
+              </button>
+            </>
+          )}
         </div>
       </div>
-    </Modal>
+    </div>
   );
-}
-
-function groupHint(group: AddonGroup) {
-  if (group.minSelect === 0 && group.maxSelect === 1) return 'Optional · one';
-  if (group.minSelect === 0) return `Optional · up to ${group.maxSelect}`;
-  if (group.minSelect === group.maxSelect) return `Choose ${group.minSelect}`;
-  return `Choose ${group.minSelect}–${group.maxSelect}`;
 }

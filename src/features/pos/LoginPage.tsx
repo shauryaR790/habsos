@@ -2,9 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { useTitle } from '../../lib/useTitle';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { LoadingState } from '../../components/LoadingState';
 import { clearStaffSession, hasStaffSession, markStaffSession } from './staffSession';
 
 /** Demo counter PIN — signs in as the seeded staff user (see server env defaults). */
@@ -13,7 +10,7 @@ const DEMO_EMAIL = 'admin@habs.cafe';
 const DEMO_PASSWORD = 'habsos-admin';
 
 export function LoginPage() {
-  useTitle('Staff sign in');
+  useTitle('Point of Sale');
   const navigate = useNavigate();
   const [pin, setPin] = useState('');
   const [email, setEmail] = useState('');
@@ -84,47 +81,64 @@ export function LoginPage() {
 
   if (checking) {
     return (
-      <main className="login">
-        <LoadingState label="Opening register" />
+      <main className="odoo-pos o-login">
+        <div className="o-login__card o-login__card--busy">
+          <img src="/ui/pos-awning.png" alt="" className="o-login__logo" width={48} height={44} />
+          <div className="o-loading-bar"><span /></div>
+          <p>Opening Point of Sale…</p>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="login">
-      <form className="login-pin" onSubmit={(event) => void submitPin(event)}>
-        <p className="eyebrow">After Dunes</p>
-        <h1>Register</h1>
-        <p className="login-demo-hint">Demo PIN for staff sign-in</p>
-        <Input
-          label="PIN"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          value={pin}
-          maxLength={6}
-          onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="••••"
-        />
-        {error ? <p className="field-error" role="alert">{error}</p> : null}
-        <Button type="submit" full disabled={busy} aria-busy={busy}>
+    <main className="odoo-pos o-login">
+      <form className="o-login__card" onSubmit={(event) => void submitPin(event)}>
+        <div className="o-login__brand">
+          <img src="/ui/pos-awning.png" alt="" className="o-login__logo" width={48} height={44} />
+          <div>
+            <p className="o-login__eyebrow">Point of Sale</p>
+            <h1>Sign in</h1>
+          </div>
+        </div>
+        <p className="o-login__hint">Demo PIN for staff sign-in</p>
+        <label className="o-login__field">
+          <span>PIN</span>
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={pin}
+            maxLength={6}
+            onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="••••"
+          />
+        </label>
+        {error ? <p className="o-login__error" role="alert">{error}</p> : null}
+        <button type="submit" className="o-btn o-btn--primary o-login__submit" disabled={busy} aria-busy={busy}>
           {busy ? 'Opening register…' : 'Enter register'}
-        </Button>
-        <button type="button" className="login-advanced-toggle" onClick={() => setShowAdvanced((v) => !v)}>
+        </button>
+        <button type="button" className="o-login__toggle" onClick={() => setShowAdvanced((v) => !v)}>
           {showAdvanced ? 'Hide email sign-in' : 'Email & password instead'}
         </button>
       </form>
 
       {showAdvanced ? (
-        <form className="login-advanced" onSubmit={(event) => void submitEmail(event)}>
-          <Input label="Email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <Input label="Password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-          <Button type="submit" variant="ghost" full disabled={busy}>
+        <form className="o-login__card o-login__card--advanced" onSubmit={(event) => void submitEmail(event)}>
+          <label className="o-login__field">
+            <span>Email</span>
+            <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          <label className="o-login__field">
+            <span>Password</span>
+            <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          <button type="submit" className="o-btn o-login__submit" disabled={busy}>
             Sign in with email
-          </Button>
+          </button>
         </form>
       ) : null}
 
-      <p className="fine login-foot">
+      <p className="o-login__foot">
         First sign-in needs internet. After that, the register works offline.
       </p>
     </main>

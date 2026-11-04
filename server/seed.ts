@@ -54,6 +54,69 @@ function ensureDrinkAddonGroups() {
   }
 }
 
+function upsertAddonGroup(id: string, name: string, minSelect: number, maxSelect: number, sortOrder: number) {
+  run(
+    `INSERT INTO addon_groups (id, cafe_id, name, min_select, max_select, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       min_select = excluded.min_select,
+       max_select = excluded.max_select,
+       sort_order = excluded.sort_order`,
+    [id, CAFE_ID, name, minSelect, maxSelect, sortOrder],
+  );
+}
+
+function upsertAddon(id: string, groupId: string, name: string, price: number, sortOrder: number) {
+  run(
+    `INSERT INTO addons (id, group_id, name, price, is_available, sort_order)
+     VALUES (?, ?, ?, ?, 1, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       group_id = excluded.group_id,
+       name = excluded.name,
+       price = excluded.price,
+       is_available = 1,
+       sort_order = excluded.sort_order`,
+    [id, groupId, name, price, sortOrder],
+  );
+}
+
+function ensurePosCustomizeGroups() {
+  upsertAddonGroup('group_sides', 'Sides', 0, 1, 10);
+  upsertAddon('addon_belgian_fries', 'group_sides', 'Belgian fresh homemade fries', 0, 1);
+  upsertAddon('addon_sweet_potato_fries', 'group_sides', 'Sweet potato fries', 0, 2);
+  upsertAddon('addon_smashed_sweet', 'group_sides', 'Smashed sweet potatoes', 0, 3);
+  upsertAddon('addon_thyme_potatoes', 'group_sides', 'Potatoes with thyme', 0, 4);
+  upsertAddon('addon_grilled_veg', 'group_sides', 'Grilled vegetables', 0, 5);
+
+  upsertAddonGroup('group_combo_burgers', 'Burgers', 1, 1, 20);
+  upsertAddon('addon_combo_cheese', 'group_combo_burgers', 'Cheese Burger', 0, 1);
+  upsertAddon('addon_combo_bacon', 'group_combo_burgers', 'Bacon Burger', 0, 2);
+
+  upsertAddonGroup('group_combo_drinks', 'Drinks', 1, 1, 21);
+  upsertAddon('addon_combo_coke', 'group_combo_drinks', 'Coca-Cola', 0, 1);
+  upsertAddon('addon_combo_water', 'group_combo_drinks', 'Water', 0, 2);
+  upsertAddon('addon_combo_minute', 'group_combo_drinks', 'Minute Maid', 0, 3);
+  upsertAddon('addon_combo_milkshake', 'group_combo_drinks', 'Milkshake Banana', 40, 4);
+
+  const sideItems = [
+    'item_bacon_burger',
+    'item_cheese_burger',
+    'item_club_sandwich',
+    'item_chicken_curry_sandwich',
+    'item_spicy_tuna_sandwich',
+    'item_mozzarella_sandwich',
+    'item_harvest',
+  ];
+  for (const itemId of sideItems) {
+    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_sides']);
+  }
+  for (const itemId of ['item_burger_combo', 'item_sushi_combo']) {
+    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_combo_burgers']);
+    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_combo_drinks']);
+  }
+}
+
 function ensureDemoScenarios() {
   const table = get<{ id: string }>('SELECT id FROM tables WHERE cafe_id = ? AND qr_code = ?', [CAFE_ID, 'T10']);
   if (table) {
@@ -129,6 +192,7 @@ function syncMenu(now: string) {
       }
     }
   });
+  ensurePosCustomizeGroups();
   const ids = MENU.map((dish) => dish.id);
   run(
     `UPDATE menu_items SET is_available = 0 WHERE cafe_id = ? AND id NOT IN (${ids.map(() => '?').join(',')})`,
@@ -148,6 +212,18 @@ function ensureTables(now: string) {
   }
   floor.push({ name: 'Hall 1', qr: 'HALL1', area: 'Party Hall' });
   floor.push({ name: 'Hall 2', qr: 'HALL2', area: 'Party Hall' });
+  for (let index = 21; index <= 24; index += 1) {
+    const name = `T${String(index).padStart(2, '0')}`;
+    floor.push({ name, qr: name, area: 'Terrace' });
+  }
+  for (let index = 25; index <= 28; index += 1) {
+    const name = `T${String(index).padStart(2, '0')}`;
+    floor.push({ name, qr: name, area: 'Rooftop' });
+  }
+  for (let index = 29; index <= 32; index += 1) {
+    const name = `T${String(index).padStart(2, '0')}`;
+    floor.push({ name, qr: name, area: 'Lounge' });
+  }
   for (const table of floor) {
     run(
       `INSERT OR IGNORE INTO tables (id, cafe_id, name, qr_code, status, area, updated_at)

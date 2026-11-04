@@ -256,41 +256,42 @@ export function PosProvider({ children }: { children: ReactNode }) {
   pullRef.current = pull;
   const reloadLocalRef = useRef(reloadLocal);
   reloadLocalRef.current = reloadLocal;
-  const authBootRef = useRef(false);
 
   useEffect(() => {
-    if (authBootRef.current) return;
-    authBootRef.current = true;
     let cancel = false;
     void (async () => {
-      const storedUser = await habdb.meta.get('user');
-      if (!cancel && storedUser?.value) {
-        setUser(storedUser.value as User);
-        markStaffSession();
-      }
-      await reloadLocalRef.current();
-      if (cancel) return;
-      setReady(true);
-      if (!navigator.onLine) {
-        setConn('OFFLINE');
-        return;
-      }
       try {
-        const me = await api<{ user: User }>('/api/auth/me');
+        const storedUser = await habdb.meta.get('user');
+        if (!cancel && storedUser?.value) {
+          setUser(storedUser.value as User);
+          markStaffSession();
+        }
+        await reloadLocalRef.current();
         if (cancel) return;
-        setUser(me.user);
-        markStaffSession();
-        await habdb.meta.put({ key: 'user', value: me.user });
-        await pullRef.current();
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          clearStaffSession();
-          await habdb.meta.delete('user');
-          setUser(null);
-          navigate('/pos/login', { replace: true });
+        setReady(true);
+        if (!navigator.onLine) {
+          setConn('OFFLINE');
           return;
         }
-        setConn('OFFLINE');
+        try {
+          const me = await api<{ user: User }>('/api/auth/me');
+          if (cancel) return;
+          setUser(me.user);
+          markStaffSession();
+          await habdb.meta.put({ key: 'user', value: me.user });
+          await pullRef.current();
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 401) {
+            clearStaffSession();
+            await habdb.meta.delete('user');
+            setUser(null);
+            navigate('/pos/login', { replace: true });
+            return;
+          }
+          setConn('OFFLINE');
+        }
+      } catch {
+        if (!cancel) setReady(true);
       }
     })();
     return () => {
