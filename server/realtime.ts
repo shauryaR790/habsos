@@ -1,6 +1,6 @@
 import type { Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import type { Order } from '../shared/domain';
+import type { Order, ProductSheet } from '../shared/domain';
 import { toPublicOrder } from '../shared/domain';
 import { run } from './db';
 import { CAFE_ID } from './ids';
@@ -23,6 +23,7 @@ export type MenuEventItem = {
   menuSubtitle: string;
   kcalLabel: string;
   ingredients: string[];
+  sheet?: ProductSheet;
 };
 
 export type AddonEvent = {

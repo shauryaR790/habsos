@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import type { CustomerSummary, MenuCategory, MenuItem, Order } from '../../../../shared/domain';
+import { api } from '../../../lib/api';
+import { downloadExcel, type ExcelSheet } from '../../../lib/excel';
 import { usePos } from '../PosContext';
 
 const ORDERS_MENU = [
@@ -116,13 +119,14 @@ function controlTitle(pathname: string) {
   if (pathname.includes('/backend/preparation')) return 'Preparation Display';
   if (pathname.includes('/backend/customers') || pathname.endsWith('/customers')) return 'Customers';
   if (pathname.includes('/backend/products')) return 'Products';
-  if (pathname.includes('/backend/reporting')) return 'Orders Analysis';
+  if (pathname.includes('/backend/inventory') || pathname.endsWith('/inventory')) return 'Inventory';
+  if (pathname.includes('/backend/reporting')) return 'Reporting';
   if (pathname.includes('/backend/config')) return 'Configuration';
   return 'Point of Sale';
 }
 
 export function OdooBackendLayout() {
-  const { user, signOut } = usePos();
+  const { user, signOut, items, orders, customers, categories } = usePos();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const initial = (user?.name ?? 'S').trim().charAt(0).toUpperCase() || 'S';
@@ -130,24 +134,28 @@ export function OdooBackendLayout() {
   const isOrdersSection = ORDERS_MENU.some((item) => pathname.startsWith(item.to));
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [titleOpen, setTitleOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [pagerLabel, setPagerLabel] = useState('0-0 / 0');
   const ordersRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const title = controlTitle(pathname);
   const isListView = pathname.includes('/backend/orders') || pathname.includes('/backend/sessions');
 
   useEffect(() => {
-    if (!ordersOpen && !menuOpen) return;
+    if (!ordersOpen && !menuOpen && !titleOpen) return;
     function onDoc(e: MouseEvent) {
       const target = e.target as Node;
       if (ordersOpen && !ordersRef.current?.contains(target)) setOrdersOpen(false);
       if (menuOpen && !menuRef.current?.contains(target)) setMenuOpen(false);
+      if (titleOpen && !titleRef.current?.contains(target)) setTitleOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setOrdersOpen(false);
         setMenuOpen(false);
+        setTitleOpen(false);
       }
     }
     // Use click (not mousedown) so the toggle button can open without racing the dismiss handler.
@@ -157,11 +165,12 @@ export function OdooBackendLayout() {
       document.removeEventListener('click', onDoc);
       document.removeEventListener('keydown', onKey);
     };
-  }, [ordersOpen, menuOpen]);
+  }, [ordersOpen, menuOpen, titleOpen]);
 
   useEffect(() => {
     setOrdersOpen(false);
     setMenuOpen(false);
+    setTitleOpen(false);
     setSearch('');
     setPagerLabel('0-0 / 0');
   }, [pathname]);
@@ -218,6 +227,9 @@ export function OdooBackendLayout() {
 
           <NavLink to="/pos/backend/products" className={({ isActive }) => `o-be-nav__link${isActive ? ' is-active' : ''}`}>
             Products
+          </NavLink>
+          <NavLink to="/pos/backend/inventory" className={({ isActive }) => `o-be-nav__link${isActive ? ' is-active' : ''}`}>
+            Inventory
           </NavLink>
           <NavLink to="/pos/backend/reporting" className={({ isActive }) => `o-be-nav__link${isActive ? ' is-active' : ''}`}>
             Reporting
@@ -298,9 +310,40 @@ export function OdooBackendLayout() {
             <button type="button" className="o-prep-new" onClick={() => navigate('/pos/prep')}>New</button>
           ) : null}
           <div className="o-be-control__title">{title}</div>
-          <button type="button" className="o-be-icon o-be-icon--dots" aria-label="Actions">
-            <DotsIcon />
-          </button>
+          <div className="o-be-title-menu" ref={titleRef}>
+            <button
+              type="button"
+              className="o-be-icon o-be-icon--dots"
+              aria-label="Actions"
+              aria-expanded={titleOpen}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                event.stopPropagation();
+                setTitleOpen((open) => !open);
+              }}
+            >
+              <DotsIcon />
+            </button>
+            {titleOpen ? (
+              <div className="o-be-dropdown" role="menu" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="o-be-dropdown__item"
+                  onClick={() => {
+                    setTitleOpen(false);
+                    if (pathname.includes('/backend/reporting')) {
+                      window.dispatchEvent(new CustomEvent('habsos-report-action', { detail: { type: 'export' } }));
+                      return;
+                    }
+                    void exportPageExcel(pathname, { items, orders, customers, categories });
+                  }}
+                >
+                  Export to Excel
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
         <label className="o-be-search">
           <SearchIcon />
@@ -349,4 +392,113 @@ export function OdooBackendLayout() {
       </div>
     </div>
   );
+}
+
+async function exportPageExcel(pathname: string, data: {
+  items: MenuItem[];
+  orders: Order[];
+  customers: CustomerSummary[];
+  categories: MenuCategory[];
+}) {
+  const categoryName = (id: string) => data.categories.find((category) => category.id === id)?.name ?? '';
+  if (pathname.includes('/backend/products') || pathname.includes('/menu')) {
+    downloadExcel('after-dunes-products', [{
+      name: 'Products',
+      rows: [
+        ['Name', 'Category', 'Price', 'Available', 'Veg', 'Ingredients'],
+        ...data.items.map((item) => [
+          item.name,
+          categoryName(item.categoryId),
+          item.price,
+          item.isAvailable ? 'Yes' : 'No',
+          item.isVeg ? 'Veg' : 'Non-veg',
+          item.ingredients.join(', '),
+        ]),
+      ],
+    }]);
+    return;
+  }
+  if (pathname.includes('/backend/orders') || pathname.includes('/app/orders')) {
+    downloadExcel('after-dunes-orders', [{
+      name: 'Orders',
+      rows: [
+        ['Bill', 'Customer', 'Mobile', 'Table', 'Status', 'Payment', 'Total', 'Created'],
+        ...data.orders.map((order) => [
+          order.orderNumber,
+          order.customerName,
+          order.customerMobile,
+          order.tableName ?? '',
+          order.status,
+          order.paymentStatus,
+          order.total,
+          new Date(order.createdAt).toLocaleString(),
+        ]),
+      ],
+    }]);
+    return;
+  }
+  if (pathname.includes('/customers')) {
+    downloadExcel('after-dunes-customers', [{
+      name: 'Customers',
+      rows: [
+        ['Name', 'Mobile', 'Orders', 'Spent', 'Last order'],
+        ...data.customers.map((customer) => [
+          customer.name,
+          customer.mobile,
+          customer.orderCount,
+          customer.spent,
+          customer.lastOrderAt ? new Date(customer.lastOrderAt).toLocaleString() : '',
+        ]),
+      ],
+    }]);
+    return;
+  }
+  if (pathname.includes('/inventory')) {
+    const bundle = await api<{
+      items: { name: string; sku: string; qty: number; unit: string; reorderLevel: number; costPerUnit: number; supplier: string; lowStock: boolean }[];
+      movements: { createdAt: string; itemName: string; kind: string; qtyDelta: number; notes: string }[];
+    }>('/api/inventory');
+    const sheets: ExcelSheet[] = [
+      {
+        name: 'Stock',
+        rows: [
+          ['Item', 'SKU', 'On hand', 'Unit', 'Reorder', 'Cost', 'Supplier', 'Low'],
+          ...bundle.items.map((item) => [item.name, item.sku, item.qty, item.unit, item.reorderLevel, item.costPerUnit, item.supplier, item.lowStock ? 'Yes' : 'No']),
+        ],
+      },
+      {
+        name: 'Movements',
+        rows: [
+          ['When', 'Item', 'Kind', 'Qty', 'Notes'],
+          ...bundle.movements.map((move) => [new Date(move.createdAt).toLocaleString(), move.itemName, move.kind, move.qtyDelta, move.notes]),
+        ],
+      },
+    ];
+    downloadExcel('after-dunes-inventory', sheets);
+    return;
+  }
+  if (pathname.includes('/sessions')) {
+    const result = await api<{ sessions: { configName: string; status: string; openedAt: string; openingCash: number; countedCash: number | null }[] }>('/api/pos/sessions');
+    downloadExcel('after-dunes-sessions', [{
+      name: 'Sessions',
+      rows: [
+        ['Register', 'Status', 'Opened', 'Opening cash', 'Counted'],
+        ...result.sessions.map((session) => [
+          session.configName,
+          session.status,
+          new Date(session.openedAt).toLocaleString(),
+          session.openingCash,
+          session.countedCash ?? '',
+        ]),
+      ],
+    }]);
+    return;
+  }
+  downloadExcel('after-dunes-orders', [{
+    name: 'Orders',
+    rows: [
+      ['Bill', 'Customer', 'Table', 'Status', 'Payment', 'Total'],
+      ...data.orders.map((order) => [order.orderNumber, order.customerName, order.tableName ?? '', order.status, order.paymentStatus, order.total]),
+    ],
+  }]);
 }

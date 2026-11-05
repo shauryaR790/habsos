@@ -145,6 +145,20 @@ export type MenuCategory = {
   sortOrder: number;
 };
 
+export type ProductSheet = {
+  productType: 'goods' | 'service' | 'combo';
+  trackInventory: boolean;
+  sales: boolean;
+  purchase: boolean;
+  pos: boolean;
+  salesTax: string;
+  cost: string;
+  purchaseTax: string;
+  reference: string;
+  barcode: string;
+  tags: string;
+};
+
 export type MenuItem = {
   id: string;
   categoryId: string;
@@ -163,6 +177,7 @@ export type MenuItem = {
   menuSubtitle: string;
   kcalLabel: string;
   ingredients: string[];
+  sheet?: ProductSheet;
 };
 
 export const DRINKS_CATEGORY_ID = 'cat_drinks';

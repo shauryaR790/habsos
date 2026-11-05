@@ -4,8 +4,6 @@ import { canTransition, formatOdooINR, priceCart, type CartLineInput } from '../
 import { pushToast } from '../../../components/Toast';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
-import { ModifierDialog } from '../ModifierDialog';
-import { ComboApplyDialog, packsForCombo, type ComboPack } from './ComboApplyDialog';
 
 type Mode = 'qty' | 'disc' | 'price';
 type PosTab = 'all' | 'food' | 'drinks';
@@ -54,8 +52,11 @@ function isDrinkCategory(name: string) {
   return /drink|beverage|coffee|tea/i.test(name);
 }
 
-const COMBO_ITEM_IDS = new Set(['item_burger_combo']);
 const CART_WIDTH_KEY = 'habsos-register-cart-width';
+
+function isComboProduct(item: { id: string; name: string }) {
+  return /combo/i.test(item.name) || item.id === 'item_burger_combo' || item.name === 'Burger Menu';
+}
 
 function readCartWidth() {
   const saved = Number(localStorage.getItem(CART_WIDTH_KEY));
@@ -100,8 +101,6 @@ export function RegisterPage() {
   const [mode, setMode] = useState<Mode>('qty');
   const [buffer, setBuffer] = useState('');
   const [busy, setBusy] = useState(false);
-  const [modifierItemId, setModifierItemId] = useState<string | null>(null);
-  const [comboItemId, setComboItemId] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const taxBps = cafe?.taxBps ?? 500;
@@ -115,7 +114,7 @@ export function RegisterPage() {
 
   const catalog = useMemo(() => {
     return items
-      .filter((item) => item.isAvailable)
+      .filter((item) => item.isAvailable && !isComboProduct(item))
       .map((item) => {
         const cat = categories.find((c) => c.id === item.categoryId);
         const drink = isDrinkCategory(cat?.name ?? '');
@@ -144,15 +143,7 @@ export function RegisterPage() {
 
   function addProduct(menuItemId: string) {
     const item = items.find((i) => i.id === menuItemId);
-    if (!item) return;
-    if (/combo/i.test(item.name) || COMBO_ITEM_IDS.has(item.id)) {
-      setComboItemId(menuItemId);
-      return;
-    }
-    if (item.addonGroupIds.length) {
-      setModifierItemId(menuItemId);
-      return;
-    }
+    if (!item || isComboProduct(item)) return;
     setBuffer('');
     setMode('qty');
     setLines((prev) => {
@@ -166,26 +157,6 @@ export function RegisterPage() {
       setSelected(prev.length);
       return [...prev, { menuItemId, quantity: 1, addonIds: [], notes: '' }];
     });
-  }
-
-  function applyComboPack(pack: ComboPack) {
-    if (!comboItemId) return;
-    const item = items.find((i) => i.id === comboItemId);
-    const allowed = new Set(
-      addonGroups
-        .filter((group) => item?.addonGroupIds.includes(group.id))
-        .flatMap((group) => group.addons.map((addon) => addon.id)),
-    );
-    const addonIds = pack.addonIds.filter((id) => allowed.has(id));
-    const qty = buffer && Number(buffer) > 0 ? Math.min(999, Math.round(Number(buffer))) : 1;
-    const note = pack.details.join('\n');
-    setLines((prev) => {
-      setSelected(prev.length);
-      return [...prev, { menuItemId: comboItemId, quantity: qty, addonIds, notes: note }];
-    });
-    setBuffer('');
-    setMode('qty');
-    setComboItemId(null);
   }
 
   function setSelectedQty(raw: string) {
@@ -512,34 +483,6 @@ export function RegisterPage() {
           ))}
         </div>
       </section>
-
-      {comboItemId && items.find((i) => i.id === comboItemId) ? (
-        <ComboApplyDialog
-          packs={packsForCombo(
-            comboItemId,
-            items.find((i) => i.id === comboItemId)!.name,
-            items.find((i) => i.id === comboItemId)!.price,
-          )}
-          onClose={() => setComboItemId(null)}
-          onApply={applyComboPack}
-        />
-      ) : null}
-
-      {modifierItemId && items.find((i) => i.id === modifierItemId) ? (
-        <ModifierDialog
-          item={items.find((i) => i.id === modifierItemId)!}
-          groups={addonGroups}
-          taxBps={taxBps}
-          onClose={() => setModifierItemId(null)}
-          onSave={({ quantity, addonIds, notes }) => {
-            setLines((prev) => [...prev, { menuItemId: modifierItemId, quantity, addonIds, notes }]);
-            setSelected(lines.length);
-            setBuffer('');
-            setMode('qty');
-            setModifierItemId(null);
-          }}
-        />
-      ) : null}
 
       {actionsOpen ? (
         <div className="o-modal-backdrop" onClick={() => setActionsOpen(false)} role="presentation">

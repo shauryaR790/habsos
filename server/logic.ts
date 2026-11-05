@@ -17,6 +17,7 @@ import {
   type PaymentMethod,
   type PaymentStatus,
   type PriceQuote,
+  type ProductSheet,
   type TableInfo,
   type TableReservation,
   type TableStatus,
@@ -51,7 +52,7 @@ import { CAFE_ID } from './ids';
 import { hashOtp, makeOtpCode, otpProvider, peekDevCode, rememberDevCode } from './otp';
 import { publish, type AddonEvent, type MenuEventItem } from './realtime';
 import { publicRazorpayKey } from './razorpay';
-import { consumeInventoryForOrder } from './inventory';
+import { consumeInventoryForOrder, syncRecipesFromIngredients } from './inventory';
 export { AppError } from './appError';
 import { AppError } from './appError';
 
@@ -228,8 +229,9 @@ export function loadCatalog() {
     menu_subtitle: string;
     kcal_label: string;
     ingredients_json: string;
+    sheet_json: string | null;
   }>(
-    'SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name',
+    'SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, sheet_json FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name',
     [CAFE_ID],
   ).map(
     (row): MenuItem => ({
@@ -250,6 +252,7 @@ export function loadCatalog() {
       kcalLabel: row.kcal_label ?? '',
       ingredients: parseIngredientList(row.ingredients_json),
       addonGroupIds: links.filter((link) => link.menu_item_id === row.id).map((link) => link.addon_group_id),
+      sheet: parseProductSheet(row.sheet_json),
     }),
   );
   return { cafe, categories, items, addonGroups };
@@ -1156,6 +1159,29 @@ export function splitStaffOrder(orderId: string, parts: number) {
   return children;
 }
 
+function parseProductSheet(raw: string | null | undefined): ProductSheet {
+  let data: Partial<ProductSheet> = {};
+  try {
+    data = raw ? JSON.parse(raw) as Partial<ProductSheet> : {};
+  } catch {
+    data = {};
+  }
+  const productType = data.productType === 'service' || data.productType === 'combo' ? data.productType : 'goods';
+  return {
+    productType,
+    trackInventory: Boolean(data.trackInventory),
+    sales: data.sales !== false,
+    purchase: data.purchase !== false,
+    pos: data.pos !== false,
+    salesTax: typeof data.salesTax === 'string' ? data.salesTax.slice(0, 40) : '',
+    cost: typeof data.cost === 'string' ? data.cost.slice(0, 16) : '',
+    purchaseTax: typeof data.purchaseTax === 'string' ? data.purchaseTax.slice(0, 40) : '',
+    reference: typeof data.reference === 'string' ? data.reference.slice(0, 40) : '',
+    barcode: typeof data.barcode === 'string' ? data.barcode.slice(0, 40) : '',
+    tags: typeof data.tags === 'string' ? data.tags.slice(0, 80) : '',
+  };
+}
+
 function itemEvent(item: MenuItem): MenuEventItem {
   return {
     id: item.id,
@@ -1175,6 +1201,7 @@ function itemEvent(item: MenuItem): MenuEventItem {
     menuSubtitle: item.menuSubtitle,
     kcalLabel: item.kcalLabel,
     ingredients: item.ingredients,
+    sheet: item.sheet,
   };
 }
 
@@ -1221,9 +1248,15 @@ export function updateMenuItem(id: string, patch: Partial<{
   menuSubtitle: string;
   kcalLabel: string;
   ingredients: string[];
+  categoryId: string;
+  sheet: ProductSheet;
 }>) {
   const current = loadCatalog().items.find((item) => item.id === id);
   if (!current) throw new AppError(404, 'NOT_FOUND', 'Menu item not found.');
+  const categoryId = patch.categoryId !== undefined ? patch.categoryId : current.categoryId;
+  if (!loadCatalog().categories.some((entry) => entry.id === categoryId)) {
+    throw new AppError(404, 'NOT_FOUND', 'Category not found.');
+  }
   const next = {
     name: patch.name !== undefined ? cleanName(patch.name) : current.name,
     description: patch.description !== undefined ? patch.description.trim().slice(0, 400) : current.description,
@@ -1238,6 +1271,8 @@ export function updateMenuItem(id: string, patch: Partial<{
     menuSubtitle: patch.menuSubtitle !== undefined ? patch.menuSubtitle.trim().slice(0, 80) : current.menuSubtitle,
     kcalLabel: patch.kcalLabel !== undefined ? patch.kcalLabel.trim().slice(0, 40) : current.kcalLabel,
     ingredients: patch.ingredients !== undefined ? parseIngredientList(serializeIngredients(patch.ingredients)) : current.ingredients,
+    categoryId,
+    sheet: patch.sheet !== undefined ? parseProductSheet(JSON.stringify(patch.sheet)) : (current.sheet ?? parseProductSheet(null)),
   };
   if (!Number.isInteger(next.price) || next.price < 0 || next.price > 100000) throw new AppError(400, 'PRICE', 'Enter a valid price.');
   if (next.shortcutNum && next.shortcutAlpha && next.shortcutNum === next.shortcutAlpha) {
@@ -1246,7 +1281,7 @@ export function updateMenuItem(id: string, patch: Partial<{
   assertShortcutFree(id, next.shortcutNum, next.shortcutAlpha);
   const now = new Date().toISOString();
   run(
-    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ?, category_id = ?, sheet_json = ?, updated_at = ? WHERE id = ?`,
     [
       next.name,
       next.description,
@@ -1261,11 +1296,14 @@ export function updateMenuItem(id: string, patch: Partial<{
       next.menuSubtitle,
       next.kcalLabel,
       serializeIngredients(next.ingredients),
+      next.categoryId,
+      JSON.stringify(next.sheet),
       now,
       id,
     ],
   );
   const item = loadCatalog().items.find((entry) => entry.id === id)!;
+  syncRecipesFromIngredients(id, item.ingredients, item.categoryId);
   publish({ type: 'menu.updated', item: itemEvent(item) });
   return item;
 }
@@ -1381,6 +1419,7 @@ export function createMenuItem(input: {
   menuSubtitle?: string;
   kcalLabel?: string;
   ingredients?: string[];
+  sheet?: ProductSheet;
 }) {
   const category = loadCatalog().categories.find((entry) => entry.id === input.categoryId);
   if (!category) throw new AppError(404, 'NOT_FOUND', 'Category not found.');
@@ -1402,8 +1441,8 @@ export function createMenuItem(input: {
     serializeIngredients(input.ingredients?.length ? input.ingredients : guestDefaults.ingredients),
   );
   run(
-    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, sheet_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       CAFE_ID,
@@ -1421,6 +1460,7 @@ export function createMenuItem(input: {
       menuSubtitle,
       kcalLabel,
       serializeIngredients(ingredients),
+      JSON.stringify(parseProductSheet(JSON.stringify(input.sheet ?? {}))),
       now,
     ],
   );
@@ -1429,6 +1469,7 @@ export function createMenuItem(input: {
     : defaultAddonGroupsForCategory(input.categoryId);
   if (addonGroupIds.length) setItemGroups(id, addonGroupIds);
   const item = loadCatalog().items.find((entry) => entry.id === id)!;
+  syncRecipesFromIngredients(id, item.ingredients, item.categoryId);
   publish({ type: 'menu.updated', item: itemEvent(item) });
   return item;
 }
@@ -1843,6 +1884,8 @@ export function applySyncBatch(operations: SyncOp[]) {
           menuSubtitle: payload.menuSubtitle as string | undefined,
           kcalLabel: payload.kcalLabel as string | undefined,
           ingredients: payload.ingredients as string[] | undefined,
+          categoryId: payload.categoryId as string | undefined,
+          sheet: payload.sheet as ProductSheet | undefined,
         });
         results.push({ id: op.id, ok: true, item });
         continue;

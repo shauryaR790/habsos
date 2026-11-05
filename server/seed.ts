@@ -2,12 +2,13 @@ import { hashPassword } from './auth';
 import { CATEGORIES, ITEM_POS, MENU } from './catalog';
 import { all, run, get } from './db';
 import { DRINK_ADDON_GROUP_IDS, DRINKS_CATEGORY_ID } from '../shared/domain';
-import { LEGACY_MENU_DISPLAY, serializeIngredients } from '../shared/menuDisplay';
+import { basicIngredientsFor, LEGACY_MENU_DISPLAY, parseIngredientList, serializeIngredients } from '../shared/menuDisplay';
 import { env } from './env';
 import { CAFE_ID } from './ids';
 import { createReservation, createStaffOrder, markPaid, retimeOrder, setTableStage, transitionOrder } from './logic';
 import { dedupeTableLabels } from './dedupeTables';
 import { purgeBlockedCustomers } from './purgeCustomers';
+import { syncRecipesFromIngredients } from './inventory';
 import { ensureInventorySeed } from './seed-inventory';
 
 function ensureMenuDisplayMeta() {
@@ -23,17 +24,27 @@ function ensureMenuDisplayMeta() {
       [display.lead, display.titled, display.kcal, serializeIngredients(display.ingredients), itemId],
     );
   }
-  const customDrinks = all<{ id: string; name: string; menu_lead: string; kcal_label: string; ingredients_json: string }>(
-    `SELECT id, name, menu_lead, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? AND category_id = ?`,
-    [CAFE_ID, DRINKS_CATEGORY_ID],
+}
+
+function ensureBasicIngredients() {
+  const rows = all<{ id: string; name: string; category_id: string; ingredients_json: string }>(
+    'SELECT id, name, category_id, ingredients_json FROM menu_items WHERE cafe_id = ?',
+    [CAFE_ID],
   );
-  for (const row of customDrinks) {
-    if (LEGACY_MENU_DISPLAY[row.id]) continue;
-    if (row.menu_lead?.trim() || row.kcal_label?.trim() || (row.ingredients_json && row.ingredients_json !== '[]')) continue;
-    run(
-      'UPDATE menu_items SET menu_lead = ?, menu_subtitle = ?, ingredients_json = ? WHERE id = ?',
-      ['ICED', row.name, serializeIngredients(['coffee']), row.id],
-    );
+  for (const row of rows) {
+    const current = parseIngredientList(row.ingredients_json);
+    const next = basicIngredientsFor(row.id, row.name, row.category_id);
+    const stampedCoffee = current.length === 1 && current[0] === 'coffee' && !next.includes('coffee');
+    if (!current.length || stampedCoffee) {
+      run('UPDATE menu_items SET ingredients_json = ? WHERE id = ?', [serializeIngredients(next), row.id]);
+    }
+  }
+  const fresh = all<{ id: string; category_id: string; ingredients_json: string }>(
+    'SELECT id, category_id, ingredients_json FROM menu_items WHERE cafe_id = ?',
+    [CAFE_ID],
+  );
+  for (const row of fresh) {
+    syncRecipesFromIngredients(row.id, parseIngredientList(row.ingredients_json), row.category_id);
   }
 }
 
@@ -246,6 +257,7 @@ export async function seed() {
     ensureMenuDisplayMeta();
     ensureDemoScenarios();
     ensureInventorySeed();
+    ensureBasicIngredients();
     purgeBlockedCustomers();
     return;
   }
@@ -326,6 +338,7 @@ export async function seed() {
   ensureMenuDisplayMeta();
   ensureDemoScenarios();
   ensureInventorySeed();
+  ensureBasicIngredients();
   purgeBlockedCustomers();
 }
 

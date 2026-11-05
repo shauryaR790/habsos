@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { dueTotal, formatOdooINR, noteValue, type PaymentMethod } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
@@ -55,7 +55,7 @@ function InvoiceIcon() {
   );
 }
 
-const METHODS: { id: PayMethod; label: string; Icon: () => JSX.Element }[] = [
+const METHODS: { id: PayMethod; label: string; Icon: () => ReactElement }[] = [
   { id: 'CASH', label: 'Cash', Icon: CashIcon },
   { id: 'CARD', label: 'Card', Icon: CardIcon },
   { id: 'ACCOUNT', label: 'Customer Account', Icon: AccountIcon },

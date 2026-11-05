@@ -8,7 +8,9 @@ import { RegisterPage } from './odoo/RegisterPage';
 import { PaymentPage } from './odoo/PaymentPage';
 import { OrdersSplitPage } from './odoo/OrdersSplitPage';
 import { ProductsKanbanPage } from './odoo/ProductsKanbanPage';
+import { ProductFormPage } from './odoo/ProductFormPage';
 import { ReportingPage } from './odoo/ReportingPage';
+import { BackendInventoryPage } from './odoo/BackendInventoryPage';
 import { ConfigPage } from './odoo/ConfigPage';
 import { BackendOrdersPage } from './odoo/BackendOrdersPage';
 import { BackendSessionsPage } from './odoo/BackendSessionsPage';
@@ -18,7 +20,6 @@ import { PrepScreenPage, OrderStatusScreenPage } from './odoo/PrepScreenPage';
 import { CustomerDisplayPage } from './odoo/CustomerDisplayPage';
 import { CustomersPage } from './CustomersPage';
 import { SettingsPage } from './SettingsPage';
-import { InventoryPage } from './InventoryPage';
 import { MenuAdminPage } from './MenuAdminPage';
 
 function RedirectRegister() {
@@ -38,10 +39,12 @@ export default function PosShell() {
           <Route path="backend/preparation" element={<PreparationDisplayPage />} />
           <Route path="backend/customers" element={<CustomersPage />} />
           <Route path="backend/products" element={<ProductsKanbanPage />} />
+          <Route path="backend/inventory" element={<BackendInventoryPage />} />
+          <Route path="backend/products/:id" element={<ProductFormPage />} />
           <Route path="backend/reporting" element={<ReportingPage />} />
           <Route path="backend/config" element={<ConfigPage />} />
           <Route path="customers" element={<Navigate to="/pos/backend/customers" replace />} />
-          <Route path="inventory" element={<InventoryPage />} />
+          <Route path="inventory" element={<BackendInventoryPage />} />
           <Route path="menu" element={<MenuAdminPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="reports" element={<Navigate to="/pos/backend/reporting" replace />} />

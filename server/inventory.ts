@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { InventoryItem, InventoryMovement, InventoryMovementKind, MenuRecipeLine } from '../shared/domain';
+import { INGREDIENT_IDS, INGREDIENT_STOCK, type IngredientId } from '../shared/menuDisplay';
 import { all, get, run } from './db';
 import { AppError } from './appError';
 import { CAFE_ID } from './ids';
@@ -268,6 +269,43 @@ export function listAllRecipes() {
     inventoryItemId: row.inventory_item_id,
     qtyPerPortion: row.qty_per_portion,
   }));
+}
+
+const INGREDIENT_STOCK_IDS = new Set(Object.values(INGREDIENT_STOCK).map((entry) => entry.stockId));
+
+export function syncRecipesFromIngredients(menuItemId: string, ingredients: string[], categoryId?: string) {
+  const menu = get<{ id: string }>('SELECT id FROM menu_items WHERE id = ? AND cafe_id = ?', [menuItemId, CAFE_ID]);
+  if (!menu) return;
+  const chosen = ingredients.filter((id): id is IngredientId => (INGREDIENT_IDS as readonly string[]).includes(id));
+  const existing = all<{ inventory_item_id: string }>(
+    'SELECT inventory_item_id FROM menu_recipes WHERE menu_item_id = ?',
+    [menuItemId],
+  );
+  for (const row of existing) {
+    if (INGREDIENT_STOCK_IDS.has(row.inventory_item_id)) {
+      run('DELETE FROM menu_recipes WHERE menu_item_id = ? AND inventory_item_id = ?', [menuItemId, row.inventory_item_id]);
+    }
+  }
+  for (const id of chosen) {
+    const stock = INGREDIENT_STOCK[id];
+    const item = get<{ id: string }>('SELECT id FROM inventory_items WHERE id = ? AND cafe_id = ?', [stock.stockId, CAFE_ID]);
+    if (!item) continue;
+    run(
+      `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+       ON CONFLICT(menu_item_id, inventory_item_id) DO UPDATE SET qty_per_portion = excluded.qty_per_portion`,
+      [menuItemId, stock.stockId, stock.portion],
+    );
+  }
+  if (categoryId === 'cat_drinks') {
+    const cup = get<{ id: string }>('SELECT id FROM inventory_items WHERE id = ?', ['inv_cups_8oz']);
+    if (cup) {
+      run(
+        `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+         ON CONFLICT(menu_item_id, inventory_item_id) DO NOTHING`,
+        [menuItemId, 'inv_cups_8oz', 1],
+      );
+    }
+  }
 }
 
 export function saveMenuRecipes(menuItemId: string, lines: { inventoryItemId: string; qtyPerPortion: number }[]) {

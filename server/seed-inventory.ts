@@ -22,6 +22,17 @@ const STOCK: StockSeed[] = [
   { id: 'inv_lids', name: 'Cup Lids', sku: 'PK-LID-01', category: 'Packaging', unit: 'pcs', qty: 90, reorder: 100, cost: 2, supplier: 'PackPro' },
   { id: 'inv_napkins', name: 'Napkins', sku: 'PK-NAP-01', category: 'Packaging', unit: 'pcs', qty: 1200, reorder: 300, cost: 1, supplier: 'PackPro' },
   { id: 'inv_chocolate', name: 'Drinking Chocolate', sku: 'RM-CHO-01', category: 'Raw material', unit: 'kg', qty: 1.2, reorder: 0.5, cost: 420, supplier: 'Metro' },
+  { id: 'inv_flour', name: 'Flour', sku: 'RM-WHT-01', category: 'Raw material', unit: 'kg', qty: 12, reorder: 3, cost: 48, supplier: 'Metro' },
+  { id: 'inv_cheese', name: 'Cheese', sku: 'RM-CHS-01', category: 'Raw material', unit: 'kg', qty: 4, reorder: 1, cost: 520, supplier: 'Local dairy' },
+  { id: 'inv_tomato', name: 'Tomato', sku: 'RM-TOM-01', category: 'Raw material', unit: 'kg', qty: 6, reorder: 2, cost: 40, supplier: 'Market' },
+  { id: 'inv_butter', name: 'Butter', sku: 'RM-BTR-01', category: 'Raw material', unit: 'kg', qty: 2.5, reorder: 0.8, cost: 480, supplier: 'Local dairy' },
+  { id: 'inv_egg', name: 'Eggs', sku: 'RM-EGG-01', category: 'Raw material', unit: 'pcs', qty: 90, reorder: 24, cost: 8, supplier: 'Market' },
+  { id: 'inv_tea', name: 'Tea Leaves', sku: 'RM-TEA-01', category: 'Raw material', unit: 'kg', qty: 1.4, reorder: 0.4, cost: 360, supplier: 'Metro' },
+  { id: 'inv_potato', name: 'Potato', sku: 'RM-POT-01', category: 'Raw material', unit: 'kg', qty: 15, reorder: 4, cost: 28, supplier: 'Market' },
+  { id: 'inv_mint', name: 'Mint', sku: 'RM-MNT-01', category: 'Raw material', unit: 'kg', qty: 0.6, reorder: 0.2, cost: 180, supplier: 'Market' },
+  { id: 'inv_chilli', name: 'Chilli', sku: 'RM-CHL-01', category: 'Raw material', unit: 'kg', qty: 1.1, reorder: 0.3, cost: 140, supplier: 'Market' },
+  { id: 'inv_paneer', name: 'Paneer', sku: 'RM-PNR-01', category: 'Raw material', unit: 'kg', qty: 3, reorder: 1, cost: 380, supplier: 'Local dairy' },
+  { id: 'inv_soy', name: 'Soy Milk', sku: 'RM-SOY-01', category: 'Raw material', unit: 'l', qty: 4, reorder: 1.5, cost: 120, supplier: 'Oatly' },
 ];
 
 const RECIPES: Array<{ menuItemId: string; lines: Array<{ inv: string; qty: number }> }> = [

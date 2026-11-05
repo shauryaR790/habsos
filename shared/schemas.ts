@@ -27,6 +27,20 @@ const guestMenuFieldsSchema = {
   ingredients: z.array(z.string().trim().min(1).max(24)).max(8).optional().default([]),
 };
 
+export const productSheetSchema = z.object({
+  productType: z.enum(['goods', 'service', 'combo']).optional().default('goods'),
+  trackInventory: z.boolean().optional().default(false),
+  sales: z.boolean().optional().default(true),
+  purchase: z.boolean().optional().default(true),
+  pos: z.boolean().optional().default(true),
+  salesTax: z.string().trim().max(40).optional().default(''),
+  cost: z.string().trim().max(16).optional().default(''),
+  purchaseTax: z.string().trim().max(40).optional().default(''),
+  reference: z.string().trim().max(40).optional().default(''),
+  barcode: z.string().trim().max(40).optional().default(''),
+  tags: z.string().trim().max(80).optional().default(''),
+});
+
 export const menuItemCreateSchema = z.object({
   categoryId: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
@@ -38,6 +52,7 @@ export const menuItemCreateSchema = z.object({
   shortcutNum: z.string().trim().max(8).nullable().optional(),
   shortcutAlpha: z.string().trim().max(8).nullable().optional(),
   addonGroupIds: z.array(z.string().trim().min(1).max(80)).max(12).optional().default([]),
+  sheet: productSheetSchema.optional(),
   ...guestMenuFieldsSchema,
 });
 
@@ -116,6 +131,8 @@ export const menuItemPatchSchema = z.object({
   isFavorite: z.boolean().optional(),
   shortcutNum: z.string().trim().max(8).nullable().optional(),
   shortcutAlpha: z.string().trim().max(8).nullable().optional(),
+  categoryId: z.string().trim().min(1).max(80).optional(),
+  sheet: productSheetSchema.optional(),
   ...guestMenuFieldsSchema,
 });
 

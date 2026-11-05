@@ -83,6 +83,7 @@ type PosValue = {
     menuSubtitle?: string;
     kcalLabel?: string;
     ingredients?: string[];
+    sheet?: MenuItem['sheet'];
   }) => Promise<MenuItem>;
   moveOrder: (orderId: string, tableId: string) => Promise<void>;
   createCustomer: (input: { name: string; mobile: string }) => Promise<CustomerSummary>;
@@ -855,6 +856,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
           menuSubtitle: item.menuSubtitle,
           kcalLabel: item.kcalLabel,
           ingredients: item.ingredients,
+          categoryId: item.categoryId,
+          sheet: item.sheet,
         },
       });
       await flush();

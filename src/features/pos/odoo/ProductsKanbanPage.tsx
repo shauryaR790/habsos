@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatOdooINR } from '../../../../shared/domain';
 import { fitProductImage } from '../../../lib/fitProductImage';
 import { useTitle } from '../../../lib/useTitle';
@@ -21,6 +22,7 @@ function ProductThumb({ src }: { src: string }) {
 
 export function ProductsKanbanPage() {
   useTitle('Products');
+  const navigate = useNavigate();
   const { items } = usePos();
   const [q, setQ] = useState('');
   const list = useMemo(() => {
@@ -41,7 +43,7 @@ export function ProductsKanbanPage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
-        <button type="button" className="o-btn o-btn--primary">New</button>
+        <button type="button" className="o-btn o-btn--primary" onClick={() => navigate('/pos/backend/products/new')}>New</button>
         <h2 style={{ margin: 0, flex: 1 }}>Products</h2>
         <label className="o-search" style={{ minWidth: 240 }}>
           <span>⌕</span>
@@ -51,13 +53,18 @@ export function ProductsKanbanPage() {
       </div>
       <div className="o-kanban">
         {list.map((item) => (
-          <article key={item.id} className="o-kanban-card">
+          <button
+            key={item.id}
+            type="button"
+            className="o-kanban-card"
+            onClick={() => navigate(`/pos/backend/products/${item.id}`)}
+          >
             <div className="o-kanban-card__copy">
               <div className="o-kanban-card__name">{item.name}</div>
               <div className="o-kanban-card__price">{formatOdooINR(item.price)}</div>
             </div>
             {item.imageUrl ? <ProductThumb src={item.imageUrl} /> : <span className="o-kanban-card__photo" />}
-          </article>
+          </button>
         ))}
       </div>
     </>

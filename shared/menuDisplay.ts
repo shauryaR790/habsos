@@ -27,6 +27,80 @@ export type MenuDisplay = {
   ingredients: IngredientId[];
 };
 
+/** Portion of each ingredient taken from stock when one dish is sold. */
+export const INGREDIENT_STOCK: Record<IngredientId, { stockId: string; portion: number }> = {
+  milk: { stockId: 'inv_milk', portion: 0.12 },
+  soy: { stockId: 'inv_soy', portion: 0.1 },
+  wheat: { stockId: 'inv_flour', portion: 0.08 },
+  coffee: { stockId: 'inv_coffee_beans', portion: 0.018 },
+  cocoa: { stockId: 'inv_chocolate', portion: 0.015 },
+  egg: { stockId: 'inv_egg', portion: 1 },
+  tea: { stockId: 'inv_tea', portion: 0.004 },
+  potato: { stockId: 'inv_potato', portion: 0.1 },
+  cheese: { stockId: 'inv_cheese', portion: 0.04 },
+  tomato: { stockId: 'inv_tomato', portion: 0.05 },
+  butter: { stockId: 'inv_butter', portion: 0.02 },
+  mint: { stockId: 'inv_mint', portion: 0.005 },
+  chilli: { stockId: 'inv_chilli', portion: 0.005 },
+  paneer: { stockId: 'inv_paneer', portion: 0.08 },
+};
+
+export const BASIC_ITEM_INGREDIENTS: Record<string, IngredientId[]> = {
+  item_bacon_burger: ['wheat', 'cheese', 'tomato'],
+  item_cheese_burger: ['wheat', 'cheese', 'tomato'],
+  item_pizza_margherita: ['wheat', 'cheese', 'tomato'],
+  item_pizza_veg: ['wheat', 'cheese', 'tomato', 'chilli'],
+  item_pasta_4formaggi: ['wheat', 'cheese', 'butter'],
+  item_funghi: ['butter'],
+  item_pasta_bolo: ['wheat', 'tomato'],
+  item_chicken_curry_sandwich: ['wheat', 'chilli'],
+  item_spicy_tuna_sandwich: ['wheat', 'chilli'],
+  item_mozzarella_sandwich: ['wheat', 'cheese', 'tomato'],
+  item_club_sandwich: ['wheat', 'egg', 'cheese'],
+  item_salmon_avocado: ['butter'],
+  item_espresso: ['coffee'],
+  item_green_tea: ['tea', 'mint'],
+  item_milkshake_banana: ['milk', 'cocoa'],
+  item_ice_tea: ['tea'],
+  item_burger_combo: ['wheat', 'cheese', 'tomato', 'potato'],
+  item_sushi_combo: ['chilli'],
+  item_lunch_maki: ['chilli'],
+  item_lunch_salmon: ['chilli'],
+  item_lunch_temaki: ['chilli'],
+  item_caesar: ['wheat', 'cheese', 'egg'],
+  item_chicken_wings: ['chilli'],
+  item_onion_rings: ['wheat', 'potato'],
+  item_greek_salad: ['tomato', 'cheese'],
+  item_fish_chips: ['potato', 'wheat'],
+  item_chicken_salad: ['tomato'],
+  item_tiramisu: ['coffee', 'egg', 'cocoa'],
+};
+
+export function basicIngredientsFor(id: string, name: string, categoryId: string): IngredientId[] {
+  if (BASIC_ITEM_INGREDIENTS[id]) return BASIC_ITEM_INGREDIENTS[id];
+  const legacy = LEGACY_MENU_DISPLAY[id]?.ingredients;
+  if (legacy?.length) return legacy;
+  const text = name.toLowerCase();
+  const found = new Set<IngredientId>();
+  if (/espresso|americano|latte|cappuccino|mocha|coffee|brew|affogato/.test(text)) found.add('coffee');
+  if (/tea|chai/.test(text)) found.add('tea');
+  if (/mint/.test(text)) found.add('mint');
+  if (/milk|shake|latte|cappuccino|mocha/.test(text)) found.add('milk');
+  if (/choc|mocha|cocoa|nutella/.test(text)) found.add('cocoa');
+  if (/burger|pizza|sandwich|baguette|pasta|bread|club|toast|waffle|quesadilla/.test(text)) found.add('wheat');
+  if (/cheese|margherita|formaggi|burger|pizza|quesadilla/.test(text)) found.add('cheese');
+  if (/tomato|margherita|burger|baguette|bolo|bruschetta/.test(text)) found.add('tomato');
+  if (/egg|club/.test(text)) found.add('egg');
+  if (/potato|fries|menu/.test(text)) found.add('potato');
+  if (/paneer|cottage/.test(text)) found.add('paneer');
+  if (/chilli|spicy|jalape/.test(text)) found.add('chilli');
+  if (/butter|pancake|cookie/.test(text)) found.add('butter');
+  if (!found.size && categoryId === DRINKS_CATEGORY_ID && /coffee|espresso|latte|mocha|brew|americano|cappuccino/.test(text)) {
+    found.add('coffee');
+  }
+  return [...found].slice(0, 8);
+}
+
 export const INGREDIENT_LABELS: Record<IngredientId, string> = {
   milk: 'Milk',
   soy: 'Soy',

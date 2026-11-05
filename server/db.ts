@@ -274,6 +274,7 @@ function migrate(database: DatabaseSync) {
   addColumn(database, 'menu_items', 'menu_subtitle', "TEXT NOT NULL DEFAULT ''");
   addColumn(database, 'menu_items', 'kcal_label', "TEXT NOT NULL DEFAULT ''");
   addColumn(database, 'menu_items', 'ingredients_json', "TEXT NOT NULL DEFAULT '[]'");
+  addColumn(database, 'menu_items', 'sheet_json', "TEXT NOT NULL DEFAULT '{}'");
   addColumn(database, 'orders', 'session_id', 'TEXT');
   addColumn(database, 'order_items', 'course', 'INTEGER NOT NULL DEFAULT 0');
   addColumn(database, 'order_items', 'sent_at', 'TEXT');

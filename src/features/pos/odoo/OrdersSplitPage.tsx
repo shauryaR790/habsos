@@ -363,7 +363,7 @@ export function OrdersSplitPage() {
 
       <div className="o-orders-detail">
         {selected ? (
-          <div className="o-ticket">
+          <div className={`o-ticket${selected.items.length < 3 ? ' o-ticket--short' : ''}`}>
             <div className="o-ticket__lines">
               {selected.items.map((item) => {
                 const extras = itemExtras(item);
