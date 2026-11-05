@@ -117,15 +117,18 @@ function ensurePosCustomizeGroups() {
     'item_chicken_curry_sandwich',
     'item_spicy_tuna_sandwich',
     'item_mozzarella_sandwich',
-    'item_harvest',
   ];
-  for (const itemId of sideItems) {
-    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_sides']);
-  }
+  for (const itemId of sideItems) linkAddonGroup(itemId, 'group_sides');
   for (const itemId of ['item_burger_combo', 'item_sushi_combo']) {
-    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_combo_burgers']);
-    run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, 'group_combo_drinks']);
+    linkAddonGroup(itemId, 'group_combo_burgers');
+    linkAddonGroup(itemId, 'group_combo_drinks');
   }
+}
+
+function linkAddonGroup(itemId: string, groupId: string) {
+  const item = get<{ id: string }>('SELECT id FROM menu_items WHERE id = ?', [itemId]);
+  if (!item) return;
+  run('INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)', [itemId, groupId]);
 }
 
 function ensureDemoScenarios() {
@@ -150,7 +153,7 @@ function ensureDemoScenarios() {
     createStaffOrder({
       customerName: 'Delivery · Rahul',
       customerMobile: '9876500888',
-      items: [{ menuItemId: 'item_penne', quantity: 1, addonIds: [] }],
+      items: [{ menuItemId: 'item_pasta_bolo', quantity: 1, addonIds: [] }],
       notes: 'MODE:DELIVERY\nADDR:12 Beach Road, Calangute',
     });
   }
@@ -294,7 +297,7 @@ export async function seed() {
     customerMobile: '9876500101',
     items: [
       { menuItemId: 'item_espresso', quantity: 2, addonIds: [] },
-      { menuItemId: 'item_halloumi', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_club_sandwich', quantity: 1, addonIds: [] },
     ],
   });
   for (const status of ['READY', 'SERVED', 'COMPLETED'] as const) transitionOrder(completed.id, status);
@@ -306,8 +309,8 @@ export async function seed() {
     customerName: 'Rohan',
     customerMobile: '9876500102',
     items: [
-      { menuItemId: 'item_iced_americano', quantity: 1, addonIds: ['addon_almond'] },
-      { menuItemId: 'item_veg_club', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_green_tea', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_cheese_burger', quantity: 1, addonIds: [] },
     ],
   });
   transitionOrder(ready.id, 'READY');
@@ -318,8 +321,8 @@ export async function seed() {
     customerName: 'Priya',
     customerMobile: '9876500103',
     items: [
-      { menuItemId: 'item_mocha', quantity: 1, addonIds: ['addon_oat'] },
-      { menuItemId: 'item_penne', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_milkshake_banana', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_pasta_bolo', quantity: 1, addonIds: [] },
     ],
   });
   retimeOrder(preparing.id, ago(18));
@@ -329,8 +332,8 @@ export async function seed() {
     customerName: 'Arjun',
     customerMobile: '9876500104',
     items: [
-      { menuItemId: 'item_cappuccino', quantity: 1, addonIds: ['addon_tall', 'addon_oat', 'addon_extra_shot'] },
-      { menuItemId: 'item_cheddar', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_espresso', quantity: 1, addonIds: [] },
+      { menuItemId: 'item_bacon_burger', quantity: 1, addonIds: [] },
     ],
   });
   retimeOrder(fresh.id, ago(6));
