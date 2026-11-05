@@ -90,6 +90,68 @@ body:has(.odoo-pos) {
   margin: 0;
 }
 
+/* Laptop / large screens — bump every POS element to 125% (browser-zoom feel).
+   Height must be /1.25 so Send/Payment and numpad stay inside the viewport. */
+@media (min-width: 1024px) {
+  html:has(.odoo-pos) {
+    zoom: 1.25;
+  }
+
+  html:has(.odoo-pos) .odoo-pos,
+  html:has(.odoo-pos) .odoo-pos.o-foh,
+  html:has(.odoo-pos) .o-foh {
+    min-height: calc(100dvh / 1.25);
+    height: calc(100dvh / 1.25);
+    max-height: calc(100dvh / 1.25);
+  }
+
+  html:has(.odoo-pos) .o-loading,
+  html:has(.odoo-pos) .o-login {
+    min-height: calc(100dvh / 1.25);
+  }
+
+  /* Keep register chrome (numpad + Send/Payment) fully on-screen after zoom */
+  html:has(.odoo-pos) .o-cart__tool,
+  html:has(.odoo-pos) .o-numpad__key {
+    min-height: 36px;
+    height: 36px;
+  }
+
+  html:has(.odoo-pos) .o-numpad {
+    gap: 5px;
+    padding: 4px 10px 8px;
+  }
+
+  html:has(.odoo-pos) .o-cart__send,
+  html:has(.odoo-pos) .o-cart__pay {
+    min-height: 52px;
+  }
+
+  html:has(.odoo-pos) .o-cart__footer {
+    padding: 6px 10px 10px;
+  }
+
+  /* Firefox has no zoom — scale rem-based + px via transform on the shell */
+  @supports not (zoom: 1) {
+    html:has(.odoo-pos) {
+      zoom: normal;
+    }
+
+    html:has(.odoo-pos) body {
+      overflow: hidden;
+    }
+
+    html:has(.odoo-pos) .odoo-pos {
+      width: 80vw; /* 100 / 1.25 */
+      min-height: 80dvh;
+      height: 80dvh;
+      max-height: 80dvh;
+      transform: scale(1.25);
+      transform-origin: top left;
+    }
+  }
+}
+
 .odoo-pos button,
 .odoo-pos input,
 .odoo-pos select,
@@ -1768,14 +1830,11 @@ html.o-foh-dark .o-burger__x:hover {
 }
 
 .o-cart__lines {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
+  /* Lines area absorbs leftover space; pad + Send/Payment stay pinned in view */
   overflow: hidden;
   padding: 8px 0;
-}
-
-.o-cart__lines:not(.o-cart__lines--empty) {
-  overflow: auto;
 }
 
 .o-cart__lines--empty {
@@ -1904,8 +1963,10 @@ html.o-foh-dark .o-burger__x:hover {
   flex-direction: column;
   gap: 0;
   background: #fff;
+  flex: 0 0 auto;
   flex-shrink: 0;
   border-top: 1px solid #dee2e6;
+  margin-top: auto;
 }
 
 .o-cart__apply-row {
