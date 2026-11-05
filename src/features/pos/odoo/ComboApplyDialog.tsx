@@ -14,7 +14,7 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
   item_burger_combo: [
     {
       id: 'burger_coke',
-      title: 'Burger Menu Combo',
+      title: 'Burger Menu',
       price: 450,
       save: 70,
       details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Coca-Cola'],
@@ -22,15 +22,15 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
     },
     {
       id: 'burger_water',
-      title: 'Burger Menu Combo',
+      title: 'Burger Menu',
       price: 450,
       save: 70,
-      details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Water'],
+      details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Spa'],
       addonIds: ['addon_combo_cheese', 'addon_combo_water'],
     },
     {
       id: 'burger_minute',
-      title: 'Burger Menu Combo',
+      title: 'Burger Menu',
       price: 450,
       save: 70,
       details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Minute Maid'],
@@ -38,10 +38,10 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
     },
     {
       id: 'burger_shake',
-      title: 'Burger Menu Combo',
+      title: 'Burger Menu',
       price: 490,
       save: 60,
-      details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Milkshake Banana'],
+      details: ['1 x Cheese Burger (Belgian fresh homemade fries)', '1 x Milkshake'],
       addonIds: ['addon_combo_cheese', 'addon_combo_milkshake'],
     },
   ],
@@ -51,7 +51,7 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
       title: 'Sushi Lunch Combo',
       price: 520,
       save: 80,
-      details: ['1 x Lunch Maki 18pc', '1 x Coca-Cola'],
+      details: ['1 x Maki', '1 x Coca-Cola'],
       addonIds: ['addon_combo_cheese', 'addon_combo_coke'],
     },
     {
@@ -59,7 +59,7 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
       title: 'Sushi Lunch Combo',
       price: 520,
       save: 80,
-      details: ['1 x Lunch Maki 18pc', '1 x Water'],
+      details: ['1 x Maki', '1 x Spa'],
       addonIds: ['addon_combo_cheese', 'addon_combo_water'],
     },
     {
@@ -67,7 +67,7 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
       title: 'Sushi Lunch Combo',
       price: 520,
       save: 80,
-      details: ['1 x Lunch Salmon 20pc', '1 x Minute Maid'],
+      details: ['1 x Sashimi Boat', '1 x Minute Maid'],
       addonIds: ['addon_combo_bacon', 'addon_combo_minute'],
     },
     {
@@ -75,7 +75,7 @@ export const COMBO_PACKS: Record<string, ComboPack[]> = {
       title: 'Sushi Lunch Combo',
       price: 560,
       save: 70,
-      details: ['1 x Salmon and Avocado', '1 x Milkshake Banana'],
+      details: ['1 x Salmon and Avocado', '1 x Milkshake'],
       addonIds: ['addon_combo_bacon', 'addon_combo_milkshake'],
     },
   ],
@@ -86,9 +86,9 @@ export function packsForCombo(menuItemId: string, fallbackTitle: string, fallbac
   if (known?.length) return known;
   const drinks = [
     { id: 'coke', label: 'Coca-Cola', addonIds: ['addon_combo_coke'], extra: 0 },
-    { id: 'water', label: 'Water', addonIds: ['addon_combo_water'], extra: 0 },
+    { id: 'water', label: 'Spa', addonIds: ['addon_combo_water'], extra: 0 },
     { id: 'minute', label: 'Minute Maid', addonIds: ['addon_combo_minute'], extra: 0 },
-    { id: 'shake', label: 'Milkshake Banana', addonIds: ['addon_combo_milkshake'], extra: 40 },
+    { id: 'shake', label: 'Milkshake', addonIds: ['addon_combo_milkshake'], extra: 40 },
   ];
   const saveBase = Math.max(40, Math.round(fallbackPrice * 0.14));
   return drinks.map((drink) => ({

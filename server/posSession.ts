@@ -229,6 +229,7 @@ export function getOpenSession(configId?: string): PosSession | null {
   return row ? mapSession(row) : null;
 }
 
+/** Paid sales in each time slice of the open session (not a running total). */
 function salesSeriesForSession(sessionId: string): number[] {
   const rows = all<{ total: number; at: string }>(
     `SELECT total, COALESCE(updated_at, created_at) AS at
@@ -237,32 +238,21 @@ function salesSeriesForSession(sessionId: string): number[] {
      ORDER BY COALESCE(updated_at, created_at) ASC`,
     [sessionId],
   );
-  if (!rows.length) return [0];
+  const buckets = 32;
+  const series = Array.from({ length: buckets }, () => 0);
+  if (!rows.length) return series;
 
   const session = get<{ opened_at: string }>('SELECT opened_at FROM pos_sessions WHERE id = ?', [sessionId]);
   const openedAt = session ? Date.parse(session.opened_at) : Date.parse(rows[0].at);
   const now = Date.now();
   const span = Math.max(now - openedAt, 60_000);
-  const buckets = 12;
-  const series = Array.from({ length: buckets }, () => 0);
-  let running = 0;
-  let rowIdx = 0;
 
-  for (let i = 0; i < buckets; i += 1) {
-    const edge = openedAt + ((i + 1) / buckets) * span;
-    while (rowIdx < rows.length && Date.parse(rows[rowIdx].at) <= edge) {
-      running += rows[rowIdx].total;
-      rowIdx += 1;
-    }
-    series[i] = running;
+  for (const row of rows) {
+    const t = Date.parse(row.at);
+    const frac = Number.isFinite(t) ? (t - openedAt) / span : 1;
+    const idx = Math.min(buckets - 1, Math.max(0, Math.floor(frac * buckets)));
+    series[idx] += row.total;
   }
-
-  // Ensure final bucket reflects all paid sales even if clocks skew slightly.
-  while (rowIdx < rows.length) {
-    running += rows[rowIdx].total;
-    rowIdx += 1;
-  }
-  series[buckets - 1] = running;
   return series;
 }
 

@@ -37,6 +37,7 @@ import '@fontsource/anton/latin-400.css';
 import '@fontsource/cormorant-garamond/latin-500.css';
 import '@fontsource/cormorant-garamond/latin-600.css';
 import '@fontsource/cormorant-garamond/latin-700.css';
+import './tailwind.css';
 import './styles.css';
 import './guest-app.css';
 import './pos.css';

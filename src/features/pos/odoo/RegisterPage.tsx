@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { canTransition, formatOdooINR, priceCart, type CartLineInput } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
@@ -18,25 +18,25 @@ const ACCENT_BY_NAME: Record<string, string> = {
   'Pasta 4 Formaggi': '#ffc107',
   Funghi: '#e83e8c',
   'Pasta Bolognese': '#e83e8c',
-  'Chicken Curry Sandwich': '#fd7e14',
-  'Spicy Tuna Sandwich': '#e83e8c',
-  'Mozzarella Sandwich': '#e83e8c',
+  'Chicken Sandwich': '#fd7e14',
+  'Tuna Sandwich': '#e83e8c',
+  Baguette: '#e83e8c',
   'Club Sandwich': '#fd7e14',
-  'Lunch Maki 18pc': '#e83e8c',
-  'Lunch Salmon 20pc': '#fd7e14',
-  'Lunch Temaki mix 3pc': '#fd7e14',
+  Maki: '#e83e8c',
+  'Sashimi Boat': '#fd7e14',
+  Temaki: '#fd7e14',
   'Salmon and Avocado': '#e83e8c',
   'Coca-Cola': '#20c997',
-  Water: '#0d6efd',
+  Spa: '#0d6efd',
   'Minute Maid': '#20c997',
   Espresso: '#20c997',
   'Green Tea': '#0dcaf0',
-  'Milkshake Banana': '#20c997',
-  'Ice Tea': '#20c997',
-  Schweppes: '#20c997',
+  Milkshake: '#20c997',
+  'Lipton Ice Tea': '#20c997',
+  'Schweppes Indian Tonic': '#20c997',
   Fanta: '#fd7e14',
-  'Burger Menu Combo': '#e83e8c',
-  'Sushi Lunch Combo': '#6f42c1',
+  'Burger Menu': '#e83e8c',
+  'Salmon Nigiri': '#fd7e14',
 };
 
 function productAccent(name: string, isDrink: boolean, index: number) {
@@ -54,7 +54,15 @@ function isDrinkCategory(name: string) {
   return /drink|beverage|coffee|tea/i.test(name);
 }
 
-const COMBO_ITEM_IDS = new Set(['item_burger_combo', 'item_sushi_combo']);
+const COMBO_ITEM_IDS = new Set(['item_burger_combo']);
+const CART_WIDTH_KEY = 'habsos-register-cart-width';
+
+function readCartWidth() {
+  const saved = Number(localStorage.getItem(CART_WIDTH_KEY));
+  if (Number.isFinite(saved) && saved >= 300 && saved <= 960) return saved;
+  if (typeof window !== 'undefined' && window.innerWidth >= 1680) return 520;
+  return 380;
+}
 
 function lineAccent(name: string, index: number) {
   return productAccent(name, /cola|water|tea|maid|fanta|espresso|shake|schweppe|juice|lemonade|sprite|drink/i.test(name), index);
@@ -63,6 +71,10 @@ function lineAccent(name: string, index: number) {
 export function RegisterPage() {
   useTitle('Register');
   const navigate = useNavigate();
+  const registerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const [cartWidth, setCartWidth] = useState(readCartWidth);
+  const [dragging, setDragging] = useState(false);
   const [params] = useSearchParams();
   const { categories, items, addonGroups, cafe, createOrder, updateOrder, tables, orders, setStatus } = usePos();
   const tableId = params.get('table');
@@ -261,8 +273,38 @@ export function RegisterPage() {
   const drinkCount = lines.reduce((s, l) => s + l.quantity, 0) - foodCount;
   const empty = !lines.length;
 
+  function onSplitDown(event: PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { startX: event.clientX, startW: cartWidth };
+    setDragging(true);
+  }
+
+  function onSplitMove(event: PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current || !registerRef.current) return;
+    const bounds = registerRef.current.getBoundingClientRect();
+    const next = dragRef.current.startW + (event.clientX - dragRef.current.startX);
+    const max = Math.max(320, bounds.width - 280);
+    setCartWidth(Math.min(max, Math.max(300, next)));
+  }
+
+  function onSplitUp(event: PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+    setCartWidth((width) => {
+      localStorage.setItem(CART_WIDTH_KEY, String(Math.round(width)));
+      return width;
+    });
+  }
+
   return (
-    <div className="o-register">
+    <div
+      className={`o-register${dragging ? ' is-dragging' : ''}`}
+      ref={registerRef}
+      style={{ gridTemplateColumns: `${cartWidth}px 12px minmax(0, 1fr)` }}
+    >
       <aside className="o-cart">
         <div className={`o-cart__lines${empty ? ' o-cart__lines--empty' : ''}`}>
           {empty ? (
@@ -425,6 +467,18 @@ export function RegisterPage() {
           </div>
         ) : null}
       </aside>
+
+      <div
+        className={`o-register__split${dragging ? ' is-dragging' : ''}`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize order and products"
+        aria-valuenow={Math.round(cartWidth)}
+        onPointerDown={onSplitDown}
+        onPointerMove={onSplitMove}
+        onPointerUp={onSplitUp}
+        onPointerCancel={onSplitUp}
+      />
 
       <section className="o-products">
         <div className="o-cats">

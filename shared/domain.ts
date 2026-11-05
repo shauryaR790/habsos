@@ -60,7 +60,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PREPARING: ['READY', 'CANCELLED'],
   READY: ['SERVED', 'CANCELLED'],
   SERVED: ['COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
+  COMPLETED: ['CANCELLED'],
   CANCELLED: [],
 };
 
@@ -387,7 +387,7 @@ export type PosSessionStats = {
   soldOrders: number;
   ongoingTotal: number;
   ongoingOrders: number;
-  /** Cumulative sold totals across the open session (oldest → newest). */
+  /** Paid sales in each time slice of the session, oldest → newest. */
   salesSeries: number[];
 };
 

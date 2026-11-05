@@ -13,6 +13,8 @@ import { ConfigPage } from './odoo/ConfigPage';
 import { BackendOrdersPage } from './odoo/BackendOrdersPage';
 import { BackendSessionsPage } from './odoo/BackendSessionsPage';
 import { BackendPlaceholderPage } from './odoo/BackendPlaceholderPage';
+import { PreparationDisplayPage } from './odoo/PreparationDisplayPage';
+import { PrepScreenPage, OrderStatusScreenPage } from './odoo/PrepScreenPage';
 import { CustomerDisplayPage } from './odoo/CustomerDisplayPage';
 import { CustomersPage } from './CustomersPage';
 import { SettingsPage } from './SettingsPage';
@@ -33,7 +35,7 @@ export default function PosShell() {
           <Route path="backend/orders" element={<BackendOrdersPage />} />
           <Route path="backend/sessions" element={<BackendSessionsPage />} />
           <Route path="backend/payments" element={<BackendPlaceholderPage title="Payments" />} />
-          <Route path="backend/preparation" element={<BackendPlaceholderPage title="Preparation Display" />} />
+          <Route path="backend/preparation" element={<PreparationDisplayPage />} />
           <Route path="backend/customers" element={<CustomersPage />} />
           <Route path="backend/products" element={<ProductsKanbanPage />} />
           <Route path="backend/reporting" element={<ReportingPage />} />
@@ -45,6 +47,9 @@ export default function PosShell() {
           <Route path="reports" element={<Navigate to="/pos/backend/reporting" replace />} />
           <Route path="payments" element={<Navigate to="/pos/backend/payments" replace />} />
         </Route>
+
+        <Route path="prep" element={<PrepScreenPage />} />
+        <Route path="prep/status" element={<OrderStatusScreenPage />} />
 
         <Route path="app" element={<OdooFoHLayout />}>
           <Route index element={<Navigate to="tables" replace />} />

@@ -95,9 +95,9 @@ function ensurePosCustomizeGroups() {
 
   upsertAddonGroup('group_combo_drinks', 'Drinks', 1, 1, 21);
   upsertAddon('addon_combo_coke', 'group_combo_drinks', 'Coca-Cola', 0, 1);
-  upsertAddon('addon_combo_water', 'group_combo_drinks', 'Water', 0, 2);
+  upsertAddon('addon_combo_water', 'group_combo_drinks', 'Spa', 0, 2);
   upsertAddon('addon_combo_minute', 'group_combo_drinks', 'Minute Maid', 0, 3);
-  upsertAddon('addon_combo_milkshake', 'group_combo_drinks', 'Milkshake Banana', 40, 4);
+  upsertAddon('addon_combo_milkshake', 'group_combo_drinks', 'Milkshake', 40, 4);
 
   const sideItems = [
     'item_bacon_burger',

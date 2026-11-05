@@ -1,21 +1,28 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { formatINR, formatWhen, maskMobile, registerPath, type CustomerSummary, type Order } from '../../../shared/domain';
 import { useTitle } from '../../lib/useTitle';
 import { api } from '../../lib/api';
-import { Button } from '../../components/Button';
-import { EmptyState } from '../../components/EmptyState';
-import { Input } from '../../components/Input';
+import { Button as FieldButton } from '../../components/Button';
+import { Input as Field } from '../../components/Input';
 import { Modal } from '../../components/Modal';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { usePos } from './PosContext';
+import type { BackendChromeContext } from './odoo/OdooBackendLayout';
+
+type CustomerFilter = 'all' | 'loyalty';
 
 export function CustomersPage() {
   useTitle('Customers');
   const pos = usePos();
   const navigate = useNavigate();
-  const [query, setQuery] = useState('');
+  const { search, setSearch, setPagerLabel } = useOutletContext<BackendChromeContext>();
   const [shown, setShown] = useState<string | null>(null);
-  const [loyaltyOnly, setLoyaltyOnly] = useState(false);
+  const [filter, setFilter] = useState<CustomerFilter>('all');
   const [add, setAdd] = useState(false);
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
@@ -24,15 +31,20 @@ export function CustomersPage() {
   const [removeTarget, setRemoveTarget] = useState<CustomerSummary | null>(null);
 
   const customers = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = search.trim().toLowerCase();
     return pos.customers
       .filter((customer) => {
-        if (loyaltyOnly && customer.orderCount < 2) return false;
+        if (filter === 'loyalty' && customer.orderCount < 2) return false;
         if (!needle) return true;
         return customer.name.toLowerCase().includes(needle) || customer.mobile.endsWith(needle) || customer.mobile.includes(needle);
       })
       .sort((a, b) => (b.lastOrderAt ?? '').localeCompare(a.lastOrderAt ?? ''));
-  }, [loyaltyOnly, pos.customers, query]);
+  }, [filter, pos.customers, search]);
+
+  useEffect(() => {
+    const n = customers.length;
+    setPagerLabel(n ? `1-${n} / ${n}` : '0-0 / 0');
+  }, [customers.length, setPagerLabel]);
 
   async function saveCustomer() {
     setBusy(true);
@@ -74,65 +86,102 @@ export function CustomersPage() {
     }
   }
 
-  return (
-    <section className="pos-page">
-      <header className="page-head">
-        <h1>Customers</h1>
-        <p className="fine">{pos.customers.length} on file · {pos.customers.filter((row) => row.orderCount >= 2).length} loyalty</p>
-      </header>
+  const emptyCopy = search.trim() || filter === 'loyalty'
+    ? 'Nobody matches that filter.'
+    : 'No customers yet';
 
-      <div className="rpt-tools">
-        <label className="search">
-          <span className="sr-only">Search customers</span>
-          <input value={query} placeholder="Name or mobile" onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <div className="bill-modes" role="group" aria-label="Customer filter">
-          <button type="button" className={loyaltyOnly ? '' : 'on'} onClick={() => setLoyaltyOnly(false)}>All</button>
-          <button type="button" className={loyaltyOnly ? 'on' : ''} onClick={() => setLoyaltyOnly(true)}>Loyalty</button>
-        </div>
-        <Button variant="ghost" onClick={() => setAdd(true)}>Add customer</Button>
+  return (
+    <section className="o-cust">
+      <div className="flex flex-wrap items-center gap-3 border-b border-[#dee2e6] bg-white px-4 py-3">
+        <Input
+          value={search}
+          placeholder="Search name or mobile"
+          onChange={(event) => setSearch(event.target.value)}
+          className="h-10 w-[240px] max-w-full bg-white"
+        />
+        <Select value={filter} onValueChange={(value) => setFilter(value as CustomerFilter)}>
+          <SelectTrigger className="w-[180px] bg-white" aria-label="Filter customers">
+            <SelectValue placeholder="Filter customers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="loyalty">Loyalty</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button onClick={() => setAdd(true)}>Add customer</Button>
+        <span className="ml-auto text-sm text-muted-foreground">
+          {pos.customers.length} on file · {pos.customers.filter((row) => row.orderCount >= 2).length} loyalty
+        </span>
       </div>
 
       {customers.length === 0 ? (
-        <EmptyState title="No customers" body={query || loyaltyOnly ? 'Nobody matches that filter.' : 'Save a mobile on an order, or add one here.'} />
+        <p className="o-cust__empty">{emptyCopy}</p>
       ) : (
-        <div className="people-list">
-          <p className="people-head" aria-hidden="true">
-            <span>Name</span>
-            <span>Mobile</span>
-            <span>Visits</span>
-            <span>Spent</span>
-            <span>Last</span>
-            <span />
-          </p>
-          {customers.map((customer) => (
-            <article key={customer.id} className="people-row people-row-wide">
-              <strong>{customer.name}{customer.orderCount >= 2 ? <small> Loyalty</small> : null}</strong>
-              <span className="people-no">{shown === customer.id ? customer.mobile : maskMobile(customer.mobile)}</span>
-              <span className="people-count">{customer.orderCount}</span>
-              <span className="price">{formatINR(customer.spent)}</span>
-              <time dateTime={customer.lastOrderAt ?? undefined}>
-                {customer.lastOrderAt ? formatWhen(customer.lastOrderAt) : '—'}
-              </time>
-              <div className="run-acts">
-                <button type="button" onClick={() => setShown((current) => (current === customer.id ? null : customer.id))}>
-                  {shown === customer.id ? 'Hide' : 'Show'}
-                </button>
-                <button type="button" onClick={() => void openHistory(customer)}>Bills</button>
-                <button
-                  type="button"
-                  onClick={() => navigate(registerPath({
-                    mode: 'pickup',
-                    customerName: customer.name,
-                    customerMobile: customer.mobile,
-                  }))}
-                >
-                  Order
-                </button>
-                <button type="button" onClick={() => setRemoveTarget(customer)}>Remove</button>
-              </div>
-            </article>
-          ))}
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa]">Name</TableHead>
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa]">Mobile</TableHead>
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa]">Visits</TableHead>
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa]">Spent</TableHead>
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa]">Last</TableHead>
+                <TableHead className="sticky top-0 whitespace-nowrap bg-[#f8f9fa] text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {customers.map((customer) => {
+                const open = shown === customer.id;
+                return (
+                  <TableRow key={customer.id} className={cn(open && 'bg-muted/50')}>
+                    <TableCell className="whitespace-nowrap font-medium text-[#212529]">
+                      {customer.name}
+                      {customer.orderCount >= 2 ? (
+                        <span className="ml-2 inline-flex rounded-full bg-[#f1f3f5] px-2 py-0.5 text-xs font-medium text-[#495057]">
+                          Loyalty
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums text-[#212529]">
+                      {open ? customer.mobile : maskMobile(customer.mobile)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{customer.orderCount}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{formatINR(customer.spent)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {customer.lastOrderAt ? formatWhen(customer.lastOrderAt) : '—'}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShown((current) => (current === customer.id ? null : customer.id))}
+                        >
+                          {open ? 'Hide' : 'Show'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => void openHistory(customer)}>
+                          Bills
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => navigate(registerPath({
+                            mode: 'pickup',
+                            customerName: customer.name,
+                            customerMobile: customer.mobile,
+                          }))}
+                        >
+                          Order
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => setRemoveTarget(customer)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -140,8 +189,8 @@ export function CustomersPage() {
         <Modal open title="Remove customer" onClose={() => setRemoveTarget(null)}>
           <p>Remove <strong>{removeTarget.name}</strong> from the customer list? Past bills stay in reports; only the profile is deleted.</p>
           <div className="run-acts">
-            <Button variant="ghost" onClick={() => setRemoveTarget(null)}>Cancel</Button>
-            <Button disabled={busy} onClick={() => void confirmRemove()}>Remove</Button>
+            <FieldButton variant="ghost" onClick={() => setRemoveTarget(null)}>Cancel</FieldButton>
+            <FieldButton disabled={busy} onClick={() => void confirmRemove()}>Remove</FieldButton>
           </div>
         </Modal>
       ) : null}
@@ -149,46 +198,44 @@ export function CustomersPage() {
       {add ? (
         <Modal open title="Add customer" onClose={() => setAdd(false)}>
           <div className="tv-form">
-            <Input label="Name" value={name} onChange={(event) => setName(event.target.value)} />
-            <Input label="Mobile" inputMode="tel" value={mobile} onChange={(event) => setMobile(event.target.value)} />
-            <Button disabled={busy || !name.trim() || !mobile.trim()} onClick={() => void saveCustomer()}>Save</Button>
+            <Field label="Name" value={name} onChange={(event) => setName(event.target.value)} />
+            <Field label="Mobile" inputMode="tel" value={mobile} onChange={(event) => setMobile(event.target.value)} />
+            <FieldButton disabled={busy || !name.trim() || !mobile.trim()} onClick={() => void saveCustomer()}>Save</FieldButton>
           </div>
         </Modal>
       ) : null}
 
       {history ? (
-        <Modal open title={history.customer.name} onClose={() => setHistory(null)}>
-          <p className="fine">{history.customer.orderCount} visits · {formatINR(history.customer.spent)} · {shown === history.customer.id ? history.customer.mobile : maskMobile(history.customer.mobile)}</p>
+        <Modal open title={`${history.customer.name} · Bills`} onClose={() => setHistory(null)}>
+          <p className="o-bills__meta">
+            {history.customer.orderCount} visits · {formatINR(history.customer.spent)} · {shown === history.customer.id ? history.customer.mobile : maskMobile(history.customer.mobile)}
+          </p>
           {history.orders.length === 0 ? (
-            <p className="fine">No bills on file yet.</p>
+            <p className="o-bills__empty">No bills yet</p>
           ) : (
-            <div className="run-wrap">
-              <table className="run-table rpt-table">
-                <thead>
-                  <tr>
-                    <th>Bill</th>
-                    <th>When</th>
-                    <th>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="o-bills">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="bg-[#f8f9fa]">Bill</TableHead>
+                    <TableHead className="bg-[#f8f9fa]">When</TableHead>
+                    <TableHead className="bg-[#f8f9fa]">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {history.orders.map((order) => (
-                    <tr
+                    <TableRow
                       key={order.id}
-                      role="button"
-                      tabIndex={0}
+                      className="cursor-pointer"
                       onClick={() => navigate(`/pos/orders/${order.id}`)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') navigate(`/pos/orders/${order.id}`);
-                      }}
                     >
-                      <td>#{order.orderNumber || '—'}</td>
-                      <td>{formatWhen(order.createdAt)}</td>
-                      <td className="price">{formatINR(order.total)}</td>
-                    </tr>
+                      <TableCell className="whitespace-nowrap">#{order.orderNumber || '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatWhen(order.createdAt)}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatINR(order.total)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </Modal>

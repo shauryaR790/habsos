@@ -5,7 +5,6 @@ import { usePos } from '../PosContext';
 const ORDERS_MENU = [
   { to: '/pos/backend/orders', label: 'Orders' },
   { to: '/pos/backend/sessions', label: 'Sessions' },
-  { to: '/pos/backend/payments', label: 'Payments' },
   { to: '/pos/backend/preparation', label: 'Preparation Display' },
   { to: '/pos/backend/customers', label: 'Customers' },
 ] as const;
@@ -295,6 +294,9 @@ export function OdooBackendLayout() {
 
       <div className="o-be-control">
         <div className="o-be-control__left">
+          {pathname.includes('/backend/preparation') ? (
+            <button type="button" className="o-prep-new" onClick={() => navigate('/pos/prep')}>New</button>
+          ) : null}
           <div className="o-be-control__title">{title}</div>
           <button type="button" className="o-be-icon o-be-icon--dots" aria-label="Actions">
             <DotsIcon />

@@ -1,7 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatOdooINR } from '../../../../shared/domain';
+import { fitProductImage } from '../../../lib/fitProductImage';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
+
+function ProductThumb({ src }: { src: string }) {
+  const [fitted, setFitted] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setFitted(null);
+    fitProductImage(src).then((url) => {
+      if (live) setFitted(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, [src]);
+  return <img src={fitted ?? src} alt="" data-fit={fitted ? 'ready' : 'pending'} />;
+}
 
 export function ProductsKanbanPage() {
   useTitle('Products');
@@ -9,7 +25,17 @@ export function ProductsKanbanPage() {
   const [q, setQ] = useState('');
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return items.filter((item) => !needle || item.name.toLowerCase().includes(needle));
+    const seen = new Set<string>();
+    return items
+      .filter((item) => item.isAvailable)
+      .filter((item) => {
+        const img = item.imageUrl ?? '';
+        if (/\.(jpe?g|webp)(\?|$)/i.test(img) || img.includes('/studio/')) return false;
+        if (img && seen.has(img)) return false;
+        if (img) seen.add(img);
+        return !needle || item.name.toLowerCase().includes(needle);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [items, q]);
 
   return (
@@ -26,11 +52,11 @@ export function ProductsKanbanPage() {
       <div className="o-kanban">
         {list.map((item) => (
           <article key={item.id} className="o-kanban-card">
-            <div>
+            <div className="o-kanban-card__copy">
               <div className="o-kanban-card__name">{item.name}</div>
               <div className="o-kanban-card__price">{formatOdooINR(item.price)}</div>
             </div>
-            {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <div style={{ width: 88, height: 72, background: '#f1f3f5', borderRadius: 4 }} />}
+            {item.imageUrl ? <ProductThumb src={item.imageUrl} /> : <span className="o-kanban-card__photo" />}
           </article>
         ))}
       </div>

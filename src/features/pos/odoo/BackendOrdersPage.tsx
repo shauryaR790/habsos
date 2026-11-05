@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { formatOdooINR, type PosSession } from '../../../../shared/domain';
 import { api } from '../../../lib/api';
@@ -49,6 +49,29 @@ function receiptNumber(orderNumber: number) {
   return String(orderNumber).padStart(5, '0');
 }
 
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function dayKey(iso: string) {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function dayHeading(iso: string) {
+  const date = new Date(iso);
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
 export function BackendOrdersPage() {
   useTitle('Orders');
   const { orders, user } = usePos();
@@ -89,6 +112,17 @@ export function BackendOrdersPage() {
         );
       });
   }, [orders, search, sessions, posName]);
+
+  const groups = useMemo(() => {
+    const list: { key: string; label: string; orders: typeof rows }[] = [];
+    for (const order of rows) {
+      const key = dayKey(order.createdAt);
+      const last = list[list.length - 1];
+      if (!last || last.key !== key) list.push({ key, label: dayHeading(order.createdAt), orders: [order] });
+      else last.orders.push(order);
+    }
+    return list;
+  }, [rows]);
 
   useEffect(() => {
     const n = rows.length;
@@ -134,41 +168,53 @@ export function BackendOrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((order) => {
-              const label = statusLabel(order);
-              const session = matchSession(sessions, order.createdAt);
-              return (
-                <tr key={order.id} className={selected.has(order.id) ? 'is-selected' : undefined}>
-                  <td className="o-be-table__check">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(order.id)}
-                      onChange={() => toggleOne(order.id)}
-                      aria-label={`Select order ${order.orderNumber}`}
-                    />
+            {groups.map((group) => (
+              <Fragment key={group.key}>
+                <tr className="o-be-day">
+                  <td colSpan={11}>
+                    <div className="o-be-day__row">
+                      <span>{group.label}</span>
+                      <span className="o-be-day__line" />
+                    </div>
                   </td>
-                  <td>{order.orderNumber}</td>
-                  <td>
-                    <span className="o-be-link">
-                      {session ? sessionRef(session) : '—'}
-                    </span>
-                  </td>
-                  <td>{formatDate(order.createdAt)}</td>
-                  <td><span className="o-be-link">{session?.configName ?? posName}</span></td>
-                  <td><span className="o-be-link">{receiptNumber(order.orderNumber)}</span></td>
-                  <td>{order.customerName || ''}</td>
-                  <td>
-                    <span className="o-be-employee">
-                      <span className="o-be-employee__avatar">{initial}</span>
-                      {employee}
-                    </span>
-                  </td>
-                  <td className="o-be-table__num">{formatOdooINR(order.total)}</td>
-                  <td><span className={statusClass(label)}>{label}</span></td>
-                  <td />
                 </tr>
-              );
-            })}
+                {group.orders.map((order) => {
+                  const label = statusLabel(order);
+                  const session = matchSession(sessions, order.createdAt);
+                  return (
+                    <tr key={order.id} className={selected.has(order.id) ? 'is-selected' : undefined}>
+                      <td className="o-be-table__check">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(order.id)}
+                          onChange={() => toggleOne(order.id)}
+                          aria-label={`Select order ${order.orderNumber}`}
+                        />
+                      </td>
+                      <td>{order.orderNumber}</td>
+                      <td>
+                        <span className="o-be-link">
+                          {session ? sessionRef(session) : '—'}
+                        </span>
+                      </td>
+                      <td>{formatDate(order.createdAt)}</td>
+                      <td><span className="o-be-link">{session?.configName ?? posName}</span></td>
+                      <td><span className="o-be-link">{receiptNumber(order.orderNumber)}</span></td>
+                      <td>{order.customerName || ''}</td>
+                      <td>
+                        <span className="o-be-employee">
+                          <span className="o-be-employee__avatar">{initial}</span>
+                          {employee}
+                        </span>
+                      </td>
+                      <td className="o-be-table__num">{formatOdooINR(order.total)}</td>
+                      <td><span className={statusClass(label)}>{label}</span></td>
+                      <td />
+                    </tr>
+                  );
+                })}
+              </Fragment>
+            ))}
             {!rows.length ? (
               <tr>
                 <td colSpan={11} className="o-be-table__empty">No orders yet</td>

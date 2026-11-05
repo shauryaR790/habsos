@@ -52,7 +52,7 @@ export function App() {
             </Route>
             <Route path="/order/:id" element={<OrderPage />} />
             <Route path="/pos/login" element={<LoginPage />} />
-            <Route path="/pos/*" element={<Suspense fallback={<div className="login"><LoadingState label="Loading POS" /></div>}><PosShell /></Suspense>} />
+            <Route path="/pos/*" element={<Suspense fallback={<div className="o-screen-state"><LoadingState label="Loading" /></div>}><PosShell /></Suspense>} />
             <Route path="*" element={<main className="cust narrow"><h1>Page not found</h1></main>} />
           </Routes>
         </CartProvider>

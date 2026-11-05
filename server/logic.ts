@@ -577,8 +577,9 @@ export function replaceStaffOrderItems(orderId: string, input: {
 function takeNumber() {
   const row = get<{ next_number: number }>('SELECT next_number FROM order_counters WHERE cafe_id = ?', [CAFE_ID]);
   if (!row) throw new AppError(500, 'COUNTER', 'Order counter is missing.');
-  run('UPDATE order_counters SET next_number = ? WHERE cafe_id = ?', [row.next_number + 1, CAFE_ID]);
-  return row.next_number;
+  const issued = Math.max(100, row.next_number);
+  run('UPDATE order_counters SET next_number = ? WHERE cafe_id = ?', [issued + 1, CAFE_ID]);
+  return issued;
 }
 
 function refreshTable(tableId: string | null) {

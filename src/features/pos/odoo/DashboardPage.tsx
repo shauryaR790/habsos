@@ -19,25 +19,60 @@ type Dash = {
   cards: Card[];
 };
 
-function buildSparkLine(series: number[]) {
-  const W = 420;
-  const H = 88;
-  const padX = 8;
-  const padTop = 10;
-  const padBot = 18;
-  const values = series.length ? series : [0];
-  const max = Math.max(...values, 1);
+const CHART_W = 420;
+const CHART_H = 96;
+
+function activitySeries(series: number[]) {
+  if (!series.length) return [0, 0, 0];
+  const cumulative = series.every((value, index) => index === 0 || value + 0.01 >= series[index - 1]);
+  const raw = cumulative
+    ? series.map((value, index) => Math.max(0, value - (index ? series[index - 1] : 0)))
+    : series.map((value) => Math.max(0, value));
+  return [0, ...raw, 0];
+}
+
+function smoothSeries(values: number[]) {
+  const radius = 2;
+  return values.map((_, index) => {
+    let acc = 0;
+    let weight = 0;
+    for (let k = -radius; k <= radius; k += 1) {
+      const j = index + k;
+      if (j < 0 || j >= values.length) continue;
+      const w = Math.exp(-(k * k) / 2.2);
+      acc += values[j] * w;
+      weight += w;
+    }
+    return weight ? acc / weight : 0;
+  });
+}
+
+function chartGeometry(series: number[]) {
+  const values = smoothSeries(activitySeries(series));
+  const max = Math.max(...values, 0);
+  const base = CHART_H - 1;
+  const peak = 10;
   const n = values.length;
-  const step = n <= 1 ? 0 : (W - padX * 2) / (n - 1);
-  const points = values.map((v, i) => {
-    const x = padX + i * step;
-    const y = padTop + (1 - v / max) * (H - padTop - padBot);
+  const points = values.map((value, index) => {
+    const x = n <= 1 ? 0 : (index / (n - 1)) * CHART_W;
+    const y = max <= 0 ? base : base - (value / max) * (base - peak);
     return { x, y };
   });
-  if (points.length === 1) {
-    points.push({ x: W - padX, y: points[0].y });
+
+  let line = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    line += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
   }
-  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = `${line} L${CHART_W},${base} L0,${base} Z`;
+  return { line, area, points, base, hasSales: max > 0 };
 }
 
 function SessionSparkline({
@@ -49,18 +84,18 @@ function SessionSparkline({
   series: number[];
   soldTotal: number;
 }) {
+  const shapeKey = series.join(',');
   if (!active) {
     return (
       <div className="o-pos-card__chart o-pos-card__chart--empty" aria-hidden>
-        <svg viewBox="0 0 420 88" preserveAspectRatio="none">
-          <line x1="12" y1="70" x2="408" y2="70" stroke="#ececec" strokeWidth="1" />
+        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
+          <line x1="0" y1={CHART_H - 1} x2={CHART_W} y2={CHART_H - 1} stroke="#ececec" strokeWidth="1.5" />
         </svg>
       </div>
     );
   }
 
-  const data = series.length ? series : [0, soldTotal || 0];
-  const line = buildSparkLine(data);
+  const { line, area, points, base, hasSales } = chartGeometry(series);
 
   return (
     <div
@@ -69,8 +104,15 @@ function SessionSparkline({
       aria-label={`Session sales chart, ${formatOdooINR(soldTotal)} sold`}
       title={`${formatOdooINR(soldTotal)} sold this session`}
     >
-      <svg viewBox="0 0 420 88" preserveAspectRatio="none">
-        <path d={line} fill="none" stroke="#111111" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+      <svg key={shapeKey} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
+        <line x1="0" y1={base} x2={CHART_W} y2={base} className="o-pos-card__baseline" />
+        {hasSales ? <path d={area} className="o-pos-card__area" /> : null}
+        <path d={line} className={`o-pos-card__line${hasSales ? '' : ' is-flat'}`} />
+        {hasSales
+          ? points.filter((_, index) => index % 4 === 0).map((point) => (
+            <circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="2.2" className="o-pos-card__dot" />
+          ))
+          : null}
       </svg>
     </div>
   );
