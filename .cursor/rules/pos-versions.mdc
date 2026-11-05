@@ -7,7 +7,7 @@ alwaysApply: true
 
 When the user says **pos a** or **pos b**, use these names. Do not swap them.
 
-- **Pos a** is the PetPooja POS. It is the cafe register that was live before the Odoo rebuild. Code is git tag and branch `pos-a-petpooja` at commit `d6aa082`. The preserved deployment is `https://afterdunes-pos-a.vercel.app` (immutable deployment `https://afterdunes-nzh4xfv36-shauryar790s-projects.vercel.app`).
-- **Pos b** is the Odoo POS. It is the current `main` app under `src/features/pos/odoo`, with the white theme and dark mode class `html.o-foh-dark`. Production for afterdunes should serve pos b.
+- **Pos a** is the PetPooja POS. It is the cafe register that was live before the Odoo rebuild. Code is git tag and branch `pos-a-petpooja` at commit `d6aa082`. The preserved deployment is `https://afterdunes-pos-a.vercel.app` (immutable deployment `https://afterdunes-nzh4xfv36-shauryar790s-projects.vercel.app`). Vercel SSO covers that URL, so opening it needs the owner's Vercel login.
+- **Pos b** is the Odoo POS. It is the current `main` app under `src/features/pos/odoo`, with the white theme and dark mode class `html.o-foh-dark`. Production for afterdunes should serve pos b: `https://afterdunes-brown.vercel.app`.
 
 Do not replace the pos a alias with a pos b deploy. New production deploys go to the main afterdunes URLs.
