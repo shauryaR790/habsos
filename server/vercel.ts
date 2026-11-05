@@ -45,7 +45,11 @@ async function refresh() {
     if (status === 'written') renameSync(`${dest}.incoming`, dest);
     await seed();
     booted = true;
-    await pushDatabase(dest);
+    try {
+      await pushDatabase(dest);
+    } catch (error) {
+      console.error('Initial database push failed — continuing with local SQLite.', error);
+    }
     return;
   }
   if (status === 'written') adoptIncoming();
