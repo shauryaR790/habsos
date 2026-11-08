@@ -3516,11 +3516,6 @@ html.o-foh-dark .o-burger__x:hover {
   animation: o-pop 0.22s cubic-bezier(0.22, 0.82, 0.24, 1);
 }
 
-.o-modal--dark {
-  background: #2c2c2c;
-  color: #fff;
-}
-
 .o-modal__head {
   display: flex;
   align-items: center;
@@ -3528,16 +3523,14 @@ html.o-foh-dark .o-burger__x:hover {
   padding: 14px 16px;
   border-bottom: 1px solid var(--o-border);
   font-weight: 600;
-}
-
-.o-modal--dark .o-modal__head {
-  border-bottom-color: #444;
+  color: var(--o-text);
 }
 
 .o-modal__body {
   padding: 16px;
   display: grid;
   gap: 12px;
+  color: var(--o-text);
 }
 
 .o-field label {
@@ -3556,12 +3549,13 @@ html.o-foh-dark .o-burger__x:hover {
   padding: 8px 0;
   outline: 0;
   background: transparent;
+  color: var(--o-text);
 }
 
-.o-modal--dark .o-field input,
-.o-modal--dark .o-field textarea {
-  color: #fff;
-  border-bottom-color: #666;
+.o-cash-modal__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .o-modal__foot {

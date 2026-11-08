@@ -23,24 +23,40 @@ export function CashInOutModal({ onConfirm, onDiscard }: Props) {
 
   return (
     <div className="o-modal-backdrop" onClick={onDiscard} role="presentation">
-      <div className="o-modal o-modal--dark" role="dialog" aria-label="Cash In Out" onClick={(e) => e.stopPropagation()}>
-        <div className="o-modal__head" style={{ gap: 8, justifyContent: 'flex-start' }}>
-          <button type="button" className={`o-btn ${kind === 'IN' ? 'o-btn--primary' : ''}`} onClick={() => setKind('IN')}>
-            Cash In
+      <div className="o-modal o-cash-modal" role="dialog" aria-label="Cash In Out" onClick={(e) => e.stopPropagation()}>
+        <div className="o-modal__head">
+          <span>Cash In / Out</span>
+          <button type="button" className="o-icon-btn" onClick={onDiscard} aria-label="Close">
+            ×
           </button>
-          <button
-            type="button"
-            className="o-btn"
-            style={kind === 'OUT' ? { background: '#dc3545', borderColor: '#dc3545', color: '#fff' } : undefined}
-            onClick={() => setKind('OUT')}
-          >
-            Cash Out
-          </button>
-          <div className="o-field" style={{ marginLeft: 'auto', minWidth: 120 }}>
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" aria-label="Amount" />
-          </div>
         </div>
         <div className="o-modal__body">
+          <div className="o-cash-modal__kinds" role="group" aria-label="Cash move type">
+            <button
+              type="button"
+              className={`o-btn${kind === 'IN' ? ' o-btn--primary' : ''}`}
+              onClick={() => setKind('IN')}
+            >
+              Cash In
+            </button>
+            <button
+              type="button"
+              className={`o-btn${kind === 'OUT' ? ' o-btn--danger' : ''}`}
+              onClick={() => setKind('OUT')}
+            >
+              Cash Out
+            </button>
+          </div>
+          <div className="o-field">
+            <label htmlFor="cash-amount">Amount</label>
+            <input
+              id="cash-amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              autoFocus
+            />
+          </div>
           <div className="o-field">
             <label htmlFor="cash-reason">Reason</label>
             <textarea id="cash-reason" rows={4} value={reason} onChange={(e) => setReason(e.target.value)} />
