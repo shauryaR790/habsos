@@ -17,6 +17,8 @@ import { JumpTableModal } from './JumpTableModal';
 
 type FloorsPayload = { floors: FloorPlan[]; geometry: TableGeometry[] };
 
+const ALL_FLOORS = '__all__';
+
 function elapsedMin(iso?: string) {
   if (!iso) return 0;
   const ms = Date.now() - Date.parse(iso);
@@ -38,7 +40,7 @@ export function TablesFloorPage() {
   const { tables, ready } = usePos();
   const [floors, setFloors] = useState<FloorPlan[]>([]);
   const [geometry, setGeometry] = useState<TableGeometry[]>([]);
-  const [floorId, setFloorId] = useState<string | null>(null);
+  const [floorId, setFloorId] = useState<string>(ALL_FLOORS);
   const [floorView, setFloorView] = useState(readFloorView);
   const [jumpOpen, setJumpOpen] = useState(false);
   const jumpBtnRef = useRef<HTMLButtonElement>(null);
@@ -48,7 +50,7 @@ export function TablesFloorPage() {
     void api<FloorsPayload>('/api/pos/floors').then((data) => {
       setFloors(data.floors);
       setGeometry(data.geometry);
-      setFloorId((prev) => prev ?? data.floors[0]?.id ?? null);
+      setFloorId((prev) => (prev === ALL_FLOORS || data.floors.some((f) => f.id === prev) ? prev : ALL_FLOORS));
     });
   }, []);
 
@@ -66,19 +68,22 @@ export function TablesFloorPage() {
     return () => window.removeEventListener('foh-floor-view', onView);
   }, []);
 
-  const activeFloor = floorId ?? floors[0]?.id;
+  const showAllFloors = floorId === ALL_FLOORS;
+  const activeFloor = showAllFloors ? floors[0]?.id : floorId;
   const floorTableIds = useMemo(() => {
+    if (showAllFloors) return new Set(tables.map((t) => t.id));
     const ids = new Set(
-      geometry.filter((g) => g.floorId === activeFloor).map((g) => g.tableId),
+      geometry.filter((g) => g.floorId === floorId).map((g) => g.tableId),
     );
     return ids;
-  }, [geometry, activeFloor]);
+  }, [geometry, floorId, showAllFloors, tables]);
 
   const seatingTables = useMemo(() => {
+    if (showAllFloors) return tables;
     if (!floorTableIds.size) return tables;
     const onFloor = tables.filter((t) => floorTableIds.has(t.id));
     return onFloor.length ? onFloor : tables;
-  }, [tables, floorTableIds]);
+  }, [tables, floorTableIds, showAllFloors]);
 
   const grouped = useMemo(() => {
     const layers = [...TABLE_AREAS];
@@ -122,11 +127,18 @@ export function TablesFloorPage() {
           + New Order
         </button>
         <div className="o-floor-tabs">
+          <button
+            type="button"
+            className={`o-floor-tab${showAllFloors ? ' is-active' : ''}`}
+            onClick={() => setFloorId(ALL_FLOORS)}
+          >
+            All
+          </button>
           {floors.map((floor) => (
             <button
               key={floor.id}
               type="button"
-              className={`o-floor-tab${floor.id === activeFloor ? ' is-active' : ''}`}
+              className={`o-floor-tab${!showAllFloors && floor.id === floorId ? ' is-active' : ''}`}
               onClick={() => setFloorId(floor.id)}
             >
               {floor.name}

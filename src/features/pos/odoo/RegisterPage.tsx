@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { canTransition, formatOdooINR, OPEN_STATUSES, priceCart, tableLabel, type CartLineInput } from '../../../../shared/domain';
+import { canTransition, formatOdooINR, OPEN_STATUSES, priceCart, type CartLineInput } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
@@ -270,27 +270,6 @@ export function RegisterPage() {
     }
   }
 
-  function selectTableFilter(nextTableId: string | null) {
-    const next = new URLSearchParams(params);
-    if (!nextTableId) {
-      next.delete('table');
-      next.delete('name');
-      next.delete('label');
-      next.delete('floor');
-      next.delete('order');
-      navigate(`/pos/app/register${next.toString() ? `?${next}` : ''}`);
-      return;
-    }
-    const table = tables.find((entry) => entry.id === nextTableId);
-    if (!table) return;
-    next.set('table', table.id);
-    next.set('name', table.name);
-    next.set('label', tableLabel(table.name));
-    if (table.openOrder) next.set('order', table.openOrder.id);
-    else next.delete('order');
-    navigate(`/pos/app/register?${next.toString()}`);
-  }
-
   function releaseTable() {
     setLines([]);
     pushToast('Table released');
@@ -513,29 +492,6 @@ export function RegisterPage() {
       />
 
       <section className="o-products">
-        <div className="o-register-tables" role="toolbar" aria-label="Filter by table">
-          <button
-            type="button"
-            className={`o-register-table${!tableId ? ' is-on' : ''}`}
-            onClick={() => selectTableFilter(null)}
-          >
-            All tables
-          </button>
-          {tables.map((table) => {
-            const open = table.openOrder;
-            return (
-              <button
-                key={table.id}
-                type="button"
-                className={`o-register-table${tableId === table.id ? ' is-on' : ''}${open ? ' has-order' : ''}`}
-                onClick={() => selectTableFilter(table.id)}
-                title={open ? `${tableLabel(table.name)} · open order` : tableLabel(table.name)}
-              >
-                {tableLabel(table.name)}
-              </button>
-            );
-          })}
-        </div>
         <div className="o-cats">
           <button
             type="button"
