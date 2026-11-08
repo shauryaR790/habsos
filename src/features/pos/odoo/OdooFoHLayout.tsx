@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../../lib/api';
 import { pushToast } from '../../../components/Toast';
+import { registerHrefFromCurrent } from '../../../lib/currentOrder';
 import { CashInOutModal } from './CashInOutModal';
 import { ClosingControlModal } from './ClosingControlModal';
 import { FoHBurgerMenu, readFoHDark } from './FoHBurgerMenu';
@@ -43,6 +44,8 @@ export function OdooFoHLayout() {
   const [productQuery, setProductQuery] = useState(params.get('q') ?? '');
   const pill = params.get('label') || params.get('name') || params.get('table') || null;
   const initial = (pos.user?.name ?? 'S').trim().charAt(0).toUpperCase() || 'S';
+  const paramKey = params.toString();
+  const registerHref = useMemo(() => registerHrefFromCurrent(), [paramKey]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('o-foh-dark', readFoHDark());
@@ -56,7 +59,7 @@ export function OdooFoHLayout() {
           <NavLink to="/pos/app/tables" className={({ isActive }) => `o-foh-tab${isActive ? ' is-active' : ''}`}>
             Tables
           </NavLink>
-          <NavLink to="/pos/app/register" className={({ isActive }) => `o-foh-tab${isActive ? ' is-active' : ''}`}>
+          <NavLink to={registerHref} className={({ isActive }) => `o-foh-tab${isActive ? ' is-active' : ''}`}>
             Register
           </NavLink>
           <NavLink to="/pos/app/orders" className={({ isActive }) => `o-foh-tab${isActive ? ' is-active' : ''}`}>

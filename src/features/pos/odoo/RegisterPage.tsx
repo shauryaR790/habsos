@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { canTransition, formatOdooINR, OPEN_STATUSES, priceCart, type CartLineInput } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
+import { clearCurrentOrder, writeCurrentOrder } from '../../../lib/currentOrder';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
 
@@ -82,6 +83,20 @@ export function RegisterPage() {
   const orderId = params.get('order');
   const searchQuery = (params.get('q') ?? '').trim().toLowerCase();
   const tableName = params.get('name') || tables.find((t) => t.id === tableId)?.name || params.get('table') || '';
+  const tableLabelParam = params.get('label') || '';
+  const floorParam = params.get('floor') || '';
+
+  useEffect(() => {
+    if (!tableId && !orderId) return;
+    writeCurrentOrder({
+      tableId: tableId || null,
+      orderId: orderId || null,
+      mode: params.get('mode') === 'takeout' ? 'pickup' : 'dine',
+      name: tableName || undefined,
+      label: tableLabelParam || undefined,
+      floor: floorParam || undefined,
+    });
+  }, [tableId, orderId, tableName, tableLabelParam, floorParam, params]);
 
   const existing = orderId ? orders.find((o) => o.id === orderId) : null;
   const [lines, setLines] = useState<CartLineInput[]>(() =>
@@ -257,6 +272,14 @@ export function RegisterPage() {
           notes: tableName ? `MODE:dine` : 'MODE:takeout',
         });
       }
+      writeCurrentOrder({
+        tableId: saved.tableId ?? tableId ?? null,
+        orderId: saved.id,
+        mode: tableName ? 'dine' : 'pickup',
+        name: tableName || undefined,
+        label: tableLabelParam || undefined,
+        floor: floorParam || undefined,
+      });
       if (goPayment) {
         navigate(`/pos/app/payment?order=${encodeURIComponent(saved.id)}`, { state: { order: saved } });
       } else {
@@ -272,6 +295,7 @@ export function RegisterPage() {
 
   function releaseTable() {
     setLines([]);
+    clearCurrentOrder();
     pushToast('Table released');
     navigate('/pos/app/tables');
   }

@@ -138,12 +138,25 @@ export function DashboardPage() {
     const timer = window.setInterval(() => {
       void load().catch(() => undefined);
     }, 12_000);
-    return () => window.clearInterval(timer);
+    const refresh = () => {
+      setLeaving(null);
+      void load().catch(() => undefined);
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+    };
   }, [load]);
 
   function goFoH(fromId: string) {
     setLeaving(fromId);
-    window.setTimeout(() => navigate('/pos/app/tables'), 220);
+    window.setTimeout(() => {
+      setLeaving(null);
+      navigate('/pos/app/tables');
+    }, 220);
   }
 
   async function openRegister(openingCash: number) {
@@ -154,8 +167,12 @@ export function DashboardPage() {
       body: JSON.stringify({ openingCash, configId }),
     });
     setOpeningFor(null);
+    await load().catch(() => undefined);
     setLeaving(configId);
-    window.setTimeout(() => navigate('/pos/app/tables', { replace: true }), 220);
+    window.setTimeout(() => {
+      setLeaving(null);
+      navigate('/pos/app/tables');
+    }, 220);
   }
 
   if (error) return <p className="o-dash-error">{error}</p>;

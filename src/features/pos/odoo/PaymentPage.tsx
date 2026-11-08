@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { dueTotal, formatOdooINR, noteValue, OPEN_STATUSES, type Order, type PaymentMethod } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
 import { api } from '../../../lib/api';
+import { clearCurrentOrder } from '../../../lib/currentOrder';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
 
@@ -197,6 +198,7 @@ export function PaymentPage() {
       for (const line of toPay) {
         await pay(order.id, line.method as PaymentMethod, line.amount);
       }
+      clearCurrentOrder();
       pushToast(invoice ? 'Payment validated · Invoice' : 'Payment validated');
       navigate('/pos/app/tables');
     } catch (err) {

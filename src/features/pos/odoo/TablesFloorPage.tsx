@@ -10,6 +10,7 @@ import {
   type TableInfo,
 } from '../../../../shared/domain';
 import { api } from '../../../lib/api';
+import { clearCurrentOrder, writeCurrentOrder } from '../../../lib/currentOrder';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
 import { readFloorView } from './FoHBurgerMenu';
@@ -98,14 +99,23 @@ export function TablesFloorPage() {
     const open = table.openOrder;
     const floorIndex = Math.max(1, floors.findIndex((f) => f.id === activeFloor) + 1);
     const tableNum = tableLabel(table.name).replace(/^T0?/, '') || table.name;
+    const label = `${floorIndex} - ${tableNum}`;
     const qs = new URLSearchParams({
       mode: 'dine',
       table: table.id,
       name: table.name,
       floor: String(floorIndex),
-      label: `${floorIndex} - ${tableNum}`,
+      label,
     });
     if (open) qs.set('order', open.id);
+    writeCurrentOrder({
+      tableId: table.id,
+      orderId: open?.id ?? null,
+      mode: 'dine',
+      name: table.name,
+      label,
+      floor: String(floorIndex),
+    });
     navigate(`/pos/app/register?${qs.toString()}`);
   }
 
@@ -123,7 +133,14 @@ export function TablesFloorPage() {
   return (
     <>
       <div className="o-floor-bar">
-        <button type="button" className="o-btn o-btn--primary" onClick={() => navigate('/pos/app/register')}>
+        <button
+          type="button"
+          className="o-btn o-btn--primary"
+          onClick={() => {
+            clearCurrentOrder();
+            navigate('/pos/app/register');
+          }}
+        >
           + New Order
         </button>
         <div className="o-floor-tabs">
