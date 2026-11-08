@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { canTransition, formatOdooINR, priceCart, type CartLineInput } from '../../../../shared/domain';
+import { canTransition, formatOdooINR, OPEN_STATUSES, priceCart, tableLabel, type CartLineInput } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
@@ -102,6 +102,33 @@ export function RegisterPage() {
   const [buffer, setBuffer] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const loadedOrderRef = useRef<string | null>(orderId);
+
+  useEffect(() => {
+    if (orderId === loadedOrderRef.current) return;
+    loadedOrderRef.current = orderId;
+    const source = orderId ? orders.find((entry) => entry.id === orderId) : null;
+    if (!source) {
+      if (!orderId) {
+        setLines([]);
+        setSelected(0);
+        setBuffer('');
+      }
+      return;
+    }
+    setLines(
+      source.items
+        .map((item) => ({
+          menuItemId: item.menuItemId ?? '',
+          quantity: item.quantity,
+          addonIds: item.addons.map((a) => a.addonId).filter((id): id is string => Boolean(id)),
+          notes: item.notes,
+        }))
+        .filter((l) => l.menuItemId),
+    );
+    setSelected(0);
+    setBuffer('');
+  }, [orderId, orders]);
 
   const taxBps = cafe?.taxBps ?? 500;
   const quote = useMemo(() => {
@@ -200,26 +227,39 @@ export function RegisterPage() {
     }
     setBusy(true);
     try {
-      let id = orderId;
-      if (existing && id) {
-        await updateOrder(id, {
-          customerName: existing.customerName || 'Guest',
-          customerMobile: existing.customerMobile || '',
+      const openOnTable = tableId
+        ? orders.find((entry) => (
+          entry.tableId === tableId
+          && entry.paymentStatus !== 'PAID'
+          && entry.status !== 'CANCELLED'
+          && OPEN_STATUSES.includes(entry.status)
+        ))
+        : null;
+      const attachId = orderId || openOnTable?.id || tables.find((entry) => entry.id === tableId)?.openOrder?.id || null;
+      const attachExisting = attachId
+        ? orders.find((entry) => entry.id === attachId) ?? (existing?.id === attachId ? existing : null) ?? openOnTable
+        : null;
+
+      let saved;
+      if (attachId) {
+        saved = await updateOrder(attachId, {
+          customerName: attachExisting?.customerName || existing?.customerName || 'Guest',
+          customerMobile: attachExisting?.customerMobile || existing?.customerMobile || '',
           items: lines,
-          notes: existing.notes,
+          notes: attachExisting?.notes || existing?.notes || (tableName ? 'MODE:dine' : 'MODE:takeout'),
         });
       } else {
-        const order = await createOrder({
+        saved = await createOrder({
           tableId: tableId && tables.some((t) => t.id === tableId) ? tableId : null,
           customerName: 'Guest',
           customerMobile: '',
           items: lines,
           notes: tableName ? `MODE:dine` : 'MODE:takeout',
         });
-        id = order.id;
       }
-      if (goPayment) navigate(`/pos/app/payment?order=${id}`);
-      else {
+      if (goPayment) {
+        navigate(`/pos/app/payment?order=${encodeURIComponent(saved.id)}`, { state: { order: saved } });
+      } else {
         pushToast('Order sent');
         navigate('/pos/app/tables');
       }
@@ -228,6 +268,27 @@ export function RegisterPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function selectTableFilter(nextTableId: string | null) {
+    const next = new URLSearchParams(params);
+    if (!nextTableId) {
+      next.delete('table');
+      next.delete('name');
+      next.delete('label');
+      next.delete('floor');
+      next.delete('order');
+      navigate(`/pos/app/register${next.toString() ? `?${next}` : ''}`);
+      return;
+    }
+    const table = tables.find((entry) => entry.id === nextTableId);
+    if (!table) return;
+    next.set('table', table.id);
+    next.set('name', table.name);
+    next.set('label', tableLabel(table.name));
+    if (table.openOrder) next.set('order', table.openOrder.id);
+    else next.delete('order');
+    navigate(`/pos/app/register?${next.toString()}`);
   }
 
   function releaseTable() {
@@ -452,6 +513,29 @@ export function RegisterPage() {
       />
 
       <section className="o-products">
+        <div className="o-register-tables" role="toolbar" aria-label="Filter by table">
+          <button
+            type="button"
+            className={`o-register-table${!tableId ? ' is-on' : ''}`}
+            onClick={() => selectTableFilter(null)}
+          >
+            All tables
+          </button>
+          {tables.map((table) => {
+            const open = table.openOrder;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                className={`o-register-table${tableId === table.id ? ' is-on' : ''}${open ? ' has-order' : ''}`}
+                onClick={() => selectTableFilter(table.id)}
+                title={open ? `${tableLabel(table.name)} · open order` : tableLabel(table.name)}
+              >
+                {tableLabel(table.name)}
+              </button>
+            );
+          })}
+        </div>
         <div className="o-cats">
           <button
             type="button"

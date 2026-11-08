@@ -1,11 +1,13 @@
-import { useMemo, useState, type ReactElement } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { dueTotal, formatOdooINR, noteValue, type PaymentMethod } from '../../../../shared/domain';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { dueTotal, formatOdooINR, noteValue, OPEN_STATUSES, type Order, type PaymentMethod } from '../../../../shared/domain';
 import { pushToast } from '../../../components/Toast';
+import { api } from '../../../lib/api';
 import { useTitle } from '../../../lib/useTitle';
 import { usePos } from '../PosContext';
 
 type PayMethod = PaymentMethod | 'ACCOUNT';
+type LocationState = { order?: Order } | null;
 
 function CashIcon() {
   return (
@@ -68,13 +70,72 @@ function splitAmount(value: number) {
   return { whole: match[1], cents: match[2] };
 }
 
+function isPayable(order: Order) {
+  return order.paymentStatus !== 'PAID'
+    && order.status !== 'CANCELLED'
+    && (OPEN_STATUSES.includes(order.status) || order.paymentStatus === 'UNPAID');
+}
+
 export function PaymentPage() {
   useTitle('Payment');
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const orderId = params.get('order');
   const { orders, pay } = usePos();
-  const order = orders.find((o) => o.id === orderId);
+  const stateOrder = (location.state as LocationState)?.order ?? null;
+
+  const dueOrders = useMemo(
+    () => orders.filter(isPayable).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [orders],
+  );
+
+  const matched = useMemo(() => {
+    if (orderId) {
+      return orders.find((o) => o.id === orderId)
+        ?? (stateOrder?.id === orderId ? stateOrder : null)
+        ?? null;
+    }
+    if (stateOrder && isPayable(stateOrder)) return stateOrder;
+    if (dueOrders.length === 1) return dueOrders[0];
+    return null;
+  }, [orderId, orders, stateOrder, dueOrders]);
+
+  const [fetched, setFetched] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(Boolean(orderId && !matched));
+
+  useEffect(() => {
+    if (matched || !orderId) {
+      setLoading(false);
+      setFetched(null);
+      return;
+    }
+    let cancel = false;
+    setLoading(true);
+    void api<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}`)
+      .then((result) => {
+        if (!cancel) setFetched(result.order);
+      })
+      .catch(() => {
+        if (!cancel) setFetched(null);
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [orderId, matched]);
+
+  useEffect(() => {
+    if (orderId || matched || loading || dueOrders.length !== 1) return;
+    navigate(`/pos/app/payment?order=${encodeURIComponent(dueOrders[0].id)}`, {
+      replace: true,
+      state: { order: dueOrders[0] },
+    });
+  }, [orderId, matched, loading, dueOrders, navigate]);
+
+  const order = matched ?? fetched;
   const due = order ? dueTotal(order) : 0;
   const [method, setMethod] = useState<PayMethod>('CASH');
   const [lines, setLines] = useState<{ method: string; amount: number }[]>([]);
@@ -145,11 +206,38 @@ export function PaymentPage() {
     }
   }
 
-  if (!order) {
+  if (loading) {
     return (
       <div className="o-pay o-pay--empty">
-        <p>Select an order to pay.</p>
-        <button type="button" className="o-btn" onClick={() => navigate('/pos/app/orders')}>Orders</button>
+        <p>Opening payment…</p>
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="o-pay o-pay--empty o-pay--pick">
+        <p>{dueOrders.length ? 'Pick an open order to pay' : 'No open order to pay yet.'}</p>
+        {dueOrders.length ? (
+          <div className="o-pay-pick">
+            {dueOrders.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="o-pay-pick__row"
+                onClick={() => navigate(`/pos/app/payment?order=${encodeURIComponent(entry.id)}`, { state: { order: entry } })}
+              >
+                <strong>#{entry.orderNumber || '—'}</strong>
+                <span>{entry.tableName || entry.customerName || 'Walk-in'}</span>
+                <em>{formatOdooINR(dueTotal(entry))}</em>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button type="button" className="o-btn" onClick={() => navigate('/pos/app/register')}>
+            Back to register
+          </button>
+        )}
       </div>
     );
   }

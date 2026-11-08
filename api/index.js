@@ -369,6 +369,68 @@ function migrate(database) {
   addColumn(database, "menu_items", "menu_subtitle", "TEXT NOT NULL DEFAULT ''");
   addColumn(database, "menu_items", "kcal_label", "TEXT NOT NULL DEFAULT ''");
   addColumn(database, "menu_items", "ingredients_json", "TEXT NOT NULL DEFAULT '[]'");
+  addColumn(database, "menu_items", "sheet_json", "TEXT NOT NULL DEFAULT '{}'");
+  addColumn(database, "orders", "session_id", "TEXT");
+  addColumn(database, "order_items", "course", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(database, "order_items", "sent_at", "TEXT");
+  addColumn(database, "customers", "email", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "street", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "street2", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "city", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "zip", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "state", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "country", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "gstin", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "barcode", "TEXT NOT NULL DEFAULT ''");
+  addColumn(database, "customers", "tags", "TEXT NOT NULL DEFAULT ''");
+  database.exec(`
+CREATE TABLE IF NOT EXISTS pos_configs (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  is_restaurant INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS pos_sessions (
+  id TEXT PRIMARY KEY,
+  config_id TEXT NOT NULL REFERENCES pos_configs(id),
+  status TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  closed_at TEXT,
+  opened_by TEXT NOT NULL,
+  opening_cash REAL NOT NULL DEFAULT 0,
+  closing_cash REAL,
+  counted_cash REAL,
+  notes TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS pos_cash_moves (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES pos_sessions(id),
+  kind TEXT NOT NULL,
+  amount REAL NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS floors (
+  id TEXT PRIMARY KEY,
+  cafe_id TEXT NOT NULL REFERENCES cafes(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  background TEXT NOT NULL DEFAULT 'wood'
+);
+CREATE TABLE IF NOT EXISTS table_geometry (
+  table_id TEXT PRIMARY KEY REFERENCES tables(id),
+  floor_id TEXT NOT NULL REFERENCES floors(id),
+  x REAL NOT NULL DEFAULT 0,
+  y REAL NOT NULL DEFAULT 0,
+  w REAL NOT NULL DEFAULT 80,
+  h REAL NOT NULL DEFAULT 80,
+  seats INTEGER NOT NULL DEFAULT 4,
+  shape TEXT NOT NULL DEFAULT 'square',
+  color TEXT NOT NULL DEFAULT '#28a745'
+);
+`);
+  addColumn(database, "pos_sessions", "sequence", "INTEGER NOT NULL DEFAULT 0");
   const userVersion = database.prepare("PRAGMA user_version").get().user_version;
   if (userVersion < 2) {
     database.exec("UPDATE orders SET customer_id = NULL");
@@ -430,11 +492,17 @@ function tx(fn) {
 // server/blobfile.ts
 var KEY = "habsos.db";
 var seen = "";
+var blobWritable = null;
 function blobEnabled() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
+function isBlobUnavailable(error) {
+  const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return name === "BlobStoreSuspendedError" || /suspended/i.test(message) || /403 Forbidden/i.test(message) || /Failed to fetch blob/i.test(message);
+}
 async function pullDatabase(dest) {
-  if (!blobEnabled()) return "absent";
+  if (!blobEnabled() || blobWritable === false) return "absent";
   try {
     const meta = await (0, import_blob.head)(KEY);
     if (meta.etag && meta.etag === seen) return "current";
@@ -447,31 +515,47 @@ async function pullDatabase(dest) {
     const bytes = Buffer.from(await new Response(downloaded.stream).arrayBuffer());
     (0, import_node_fs3.writeFileSync)(`${dest}.incoming`, bytes);
     seen = downloaded.blob.etag || meta.etag;
+    blobWritable = true;
     return "written";
   } catch (error) {
     if (error instanceof import_blob.BlobNotFoundError) return "absent";
+    if (isBlobUnavailable(error)) {
+      blobWritable = false;
+      console.error("Shared database blob unavailable \u2014 using local SQLite only.", error);
+      return "absent";
+    }
     console.error("Could not read the shared database.", error);
     return "absent";
   }
 }
 async function pushDatabase(src) {
-  if (!blobEnabled()) return;
+  if (!blobEnabled() || blobWritable === false) return;
   try {
-    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  } catch {
+    try {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+    }
+    const saved = await (0, import_blob.put)(KEY, (0, import_node_fs3.readFileSync)(src), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "application/octet-stream",
+      cacheControlMaxAge: 60
+    });
+    if (saved.etag) seen = saved.etag;
+    blobWritable = true;
+  } catch (error) {
+    if (isBlobUnavailable(error)) {
+      blobWritable = false;
+      console.error("Shared database blob unavailable \u2014 writes stay on this instance only.", error);
+      return;
+    }
+    console.error("Could not write the shared database.", error);
   }
-  const saved = await (0, import_blob.put)(KEY, (0, import_node_fs3.readFileSync)(src), {
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: "application/octet-stream",
-    cacheControlMaxAge: 60
-  });
-  if (saved.etag) seen = saved.etag;
 }
 
 // server/http.ts
-var import_node_crypto7 = require("node:crypto");
+var import_node_crypto8 = require("node:crypto");
 var import_node_fs4 = require("node:fs");
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_express = __toESM(require("express"), 1);
@@ -499,7 +583,7 @@ var TRANSITIONS = {
   PREPARING: ["READY", "CANCELLED"],
   READY: ["SERVED", "CANCELLED"],
   SERVED: ["COMPLETED", "CANCELLED"],
-  COMPLETED: [],
+  COMPLETED: ["CANCELLED"],
   CANCELLED: []
 };
 function canTransition(from, to) {
@@ -892,6 +976,19 @@ var guestMenuFieldsSchema = {
   kcalLabel: import_zod.z.string().trim().max(40).optional().default(""),
   ingredients: import_zod.z.array(import_zod.z.string().trim().min(1).max(24)).max(8).optional().default([])
 };
+var productSheetSchema = import_zod.z.object({
+  productType: import_zod.z.enum(["goods", "service", "combo"]).optional().default("goods"),
+  trackInventory: import_zod.z.boolean().optional().default(false),
+  sales: import_zod.z.boolean().optional().default(true),
+  purchase: import_zod.z.boolean().optional().default(true),
+  pos: import_zod.z.boolean().optional().default(true),
+  salesTax: import_zod.z.string().trim().max(40).optional().default(""),
+  cost: import_zod.z.string().trim().max(16).optional().default(""),
+  purchaseTax: import_zod.z.string().trim().max(40).optional().default(""),
+  reference: import_zod.z.string().trim().max(40).optional().default(""),
+  barcode: import_zod.z.string().trim().max(40).optional().default(""),
+  tags: import_zod.z.string().trim().max(80).optional().default("")
+});
 var menuItemCreateSchema = import_zod.z.object({
   categoryId: import_zod.z.string().trim().min(1).max(80),
   name: import_zod.z.string().trim().min(1).max(80),
@@ -903,6 +1000,7 @@ var menuItemCreateSchema = import_zod.z.object({
   shortcutNum: import_zod.z.string().trim().max(8).nullable().optional(),
   shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional(),
   addonGroupIds: import_zod.z.array(import_zod.z.string().trim().min(1).max(80)).max(12).optional().default([]),
+  sheet: productSheetSchema.optional(),
   ...guestMenuFieldsSchema
 });
 var tableStageSchema = import_zod.z.object({
@@ -969,6 +1067,8 @@ var menuItemPatchSchema = import_zod.z.object({
   isFavorite: import_zod.z.boolean().optional(),
   shortcutNum: import_zod.z.string().trim().max(8).nullable().optional(),
   shortcutAlpha: import_zod.z.string().trim().max(8).nullable().optional(),
+  categoryId: import_zod.z.string().trim().min(1).max(80).optional(),
+  sheet: productSheetSchema.optional(),
   ...guestMenuFieldsSchema
 });
 var addonPatchSchema = import_zod.z.object({
@@ -1070,6 +1170,167 @@ var menuRecipesSchema = import_zod.z.object({
 
 // server/inventory.ts
 var import_node_crypto = require("node:crypto");
+
+// shared/menuDisplay.ts
+var INGREDIENT_IDS = [
+  "milk",
+  "soy",
+  "wheat",
+  "coffee",
+  "cocoa",
+  "egg",
+  "tea",
+  "potato",
+  "cheese",
+  "tomato",
+  "butter",
+  "mint",
+  "chilli",
+  "paneer"
+];
+var INGREDIENT_STOCK = {
+  milk: { stockId: "inv_milk", portion: 0.12 },
+  soy: { stockId: "inv_soy", portion: 0.1 },
+  wheat: { stockId: "inv_flour", portion: 0.08 },
+  coffee: { stockId: "inv_coffee_beans", portion: 0.018 },
+  cocoa: { stockId: "inv_chocolate", portion: 0.015 },
+  egg: { stockId: "inv_egg", portion: 1 },
+  tea: { stockId: "inv_tea", portion: 4e-3 },
+  potato: { stockId: "inv_potato", portion: 0.1 },
+  cheese: { stockId: "inv_cheese", portion: 0.04 },
+  tomato: { stockId: "inv_tomato", portion: 0.05 },
+  butter: { stockId: "inv_butter", portion: 0.02 },
+  mint: { stockId: "inv_mint", portion: 5e-3 },
+  chilli: { stockId: "inv_chilli", portion: 5e-3 },
+  paneer: { stockId: "inv_paneer", portion: 0.08 }
+};
+var BASIC_ITEM_INGREDIENTS = {
+  item_bacon_burger: ["wheat", "cheese", "tomato"],
+  item_cheese_burger: ["wheat", "cheese", "tomato"],
+  item_pizza_margherita: ["wheat", "cheese", "tomato"],
+  item_pizza_veg: ["wheat", "cheese", "tomato", "chilli"],
+  item_pasta_4formaggi: ["wheat", "cheese", "butter"],
+  item_funghi: ["butter"],
+  item_pasta_bolo: ["wheat", "tomato"],
+  item_chicken_curry_sandwich: ["wheat", "chilli"],
+  item_spicy_tuna_sandwich: ["wheat", "chilli"],
+  item_mozzarella_sandwich: ["wheat", "cheese", "tomato"],
+  item_club_sandwich: ["wheat", "egg", "cheese"],
+  item_salmon_avocado: ["butter"],
+  item_espresso: ["coffee"],
+  item_green_tea: ["tea", "mint"],
+  item_milkshake_banana: ["milk", "cocoa"],
+  item_ice_tea: ["tea"],
+  item_burger_combo: ["wheat", "cheese", "tomato", "potato"],
+  item_sushi_combo: ["chilli"],
+  item_lunch_maki: ["chilli"],
+  item_lunch_salmon: ["chilli"],
+  item_lunch_temaki: ["chilli"],
+  item_caesar: ["wheat", "cheese", "egg"],
+  item_chicken_wings: ["chilli"],
+  item_onion_rings: ["wheat", "potato"],
+  item_greek_salad: ["tomato", "cheese"],
+  item_fish_chips: ["potato", "wheat"],
+  item_chicken_salad: ["tomato"],
+  item_tiramisu: ["coffee", "egg", "cocoa"]
+};
+function basicIngredientsFor(id, name, categoryId) {
+  if (BASIC_ITEM_INGREDIENTS[id]) return BASIC_ITEM_INGREDIENTS[id];
+  const legacy = LEGACY_MENU_DISPLAY[id]?.ingredients;
+  if (legacy?.length) return legacy;
+  const text = name.toLowerCase();
+  const found = /* @__PURE__ */ new Set();
+  if (/espresso|americano|latte|cappuccino|mocha|coffee|brew|affogato/.test(text)) found.add("coffee");
+  if (/tea|chai/.test(text)) found.add("tea");
+  if (/mint/.test(text)) found.add("mint");
+  if (/milk|shake|latte|cappuccino|mocha/.test(text)) found.add("milk");
+  if (/choc|mocha|cocoa|nutella/.test(text)) found.add("cocoa");
+  if (/burger|pizza|sandwich|baguette|pasta|bread|club|toast|waffle|quesadilla/.test(text)) found.add("wheat");
+  if (/cheese|margherita|formaggi|burger|pizza|quesadilla/.test(text)) found.add("cheese");
+  if (/tomato|margherita|burger|baguette|bolo|bruschetta/.test(text)) found.add("tomato");
+  if (/egg|club/.test(text)) found.add("egg");
+  if (/potato|fries|menu/.test(text)) found.add("potato");
+  if (/paneer|cottage/.test(text)) found.add("paneer");
+  if (/chilli|spicy|jalape/.test(text)) found.add("chilli");
+  if (/butter|pancake|cookie/.test(text)) found.add("butter");
+  if (!found.size && categoryId === DRINKS_CATEGORY_ID && /coffee|espresso|latte|mocha|brew|americano|cappuccino/.test(text)) {
+    found.add("coffee");
+  }
+  return [...found].slice(0, 8);
+}
+var LEGACY_MENU_DISPLAY = {
+  item_moroccan: { lead: "BLENDED", titled: "Moroccan Avocado Smoothie", kcal: "210 kcal", ingredients: ["milk"] },
+  item_berry: { lead: "BLENDED", titled: "Berry Blast Shake", kcal: "185 kcal", ingredients: ["milk"] },
+  item_nutella: { lead: "HOT", titled: "Nutella Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
+  item_hazelnut: { lead: "HOT", titled: "Hazelnut Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
+  item_peach: { lead: "ICED", titled: "Peach Ice Tea", kcal: "120 kcal", ingredients: ["tea"] },
+  item_affogato: { lead: "CUP", titled: "Affogato", kcal: "223 kcal", ingredients: ["coffee", "milk"] },
+  item_mint_latte: { lead: "HOT", titled: "Mint Latte", kcal: "231 kcal", ingredients: ["coffee", "milk", "mint"] },
+  item_americano: { lead: "HOT", titled: "Cafe Americano", kcal: "25 kcal", ingredients: ["coffee"] },
+  item_filter: { lead: "HOT", titled: "Filter Coffee", kcal: "28 kcal", ingredients: ["coffee"] },
+  item_cardamom: { lead: "CUP", titled: "Cardamom Tea", kcal: "92 kcal", ingredients: ["tea", "milk"] },
+  item_ginger_tea: { lead: "CUP", titled: "Ginger Tea", kcal: "92 kcal", ingredients: ["tea"] },
+  item_espresso: { lead: "SHORT", titled: "Classic Espresso", kcal: "5 kcal", ingredients: ["coffee"] },
+  item_long_black: { lead: "LONG", titled: "Long Black", kcal: "10 kcal", ingredients: ["coffee"] },
+  item_cappuccino: { lead: "CUP", titled: "Cappuccino", kcal: "120 kcal", ingredients: ["milk", "coffee"] },
+  item_cap_alt: { lead: "CUP", titled: "Cappuccino with Almond or Oat", kcal: "90\u2013140 kcal", ingredients: ["milk", "coffee"] },
+  item_latte: { lead: "CUP", titled: "Cafe Latte", kcal: "150 kcal", ingredients: ["milk", "coffee"] },
+  item_flat_white: { lead: "CUP", titled: "Flat White", kcal: "140 kcal", ingredients: ["milk", "coffee"] },
+  item_cortado: { lead: "SHORT", titled: "Spanish Cortado", kcal: "80 kcal", ingredients: ["coffee", "milk"] },
+  item_mocha: { lead: "CUP", titled: "Chocolate Mocha", kcal: "220 kcal", ingredients: ["milk", "cocoa", "coffee"] },
+  item_cold_brew: { lead: "ICED", titled: "Cold Brew", kcal: "5 kcal", ingredients: ["coffee"] },
+  item_citrus_brew: { lead: "ICED", titled: "Citrus Cold Brew", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
+  item_saigon: { lead: "ICED", titled: "Saigon Cold Brew", kcal: "60 kcal", ingredients: ["coffee", "milk"] },
+  item_red_john: { lead: "ICED", titled: "Red John", kcal: "90 kcal", ingredients: ["coffee"] },
+  item_sparkling: { lead: "ICED", titled: "Sparkling Espresso", kcal: "180 kcal", ingredients: ["coffee"] },
+  item_tonic: { lead: "ICED", titled: "Cold Brew Tonic / Ginger Ale", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
+  item_iced_americano: { lead: "ICED", titled: "Iced Americano", kcal: "10 kcal", ingredients: ["coffee"] },
+  item_halloumi: { lead: "SWEET", titled: "Strawberry Waffle", kcal: "310 kcal", ingredients: ["wheat", "butter"] },
+  item_avocado_toast: { lead: "SWEET", titled: "Butter Pancakes", kcal: "350 kcal", ingredients: ["wheat", "butter", "egg"] },
+  item_bruschetta: { lead: "BOARD", titled: "Bruschetta Board", kcal: "130 kcal", ingredients: ["wheat", "tomato"] },
+  item_karak_toast: { lead: "TOAST", titled: "Karak Chai Toast", kcal: "350 kcal", ingredients: ["wheat", "tea", "milk"] },
+  item_kebab: { lead: "SKEWER", titled: "Gillafi Dahike Kebab", kcal: "220 kcal", ingredients: ["milk"] },
+  item_mezze: { lead: "PLATE", titled: "Mezze Platter", kcal: "310 kcal", ingredients: ["wheat", "tomato"] },
+  item_quesadilla: { lead: "FOLDED", titled: "Mexican Quesadilla", kcal: "320 kcal", ingredients: ["wheat", "cheese"] },
+  item_cheese_balls: { lead: "FRIED", titled: "Jalape\xF1o Cheese Balls", kcal: "190 kcal", ingredients: ["cheese", "wheat"] },
+  item_healthy_bowl: { lead: "BOWL", titled: "Healthy Bowl", kcal: "320 kcal", ingredients: ["tomato"] },
+  item_house_salad: { lead: "BOWL", titled: "House Salad", kcal: "170 kcal", ingredients: ["tomato"] },
+  item_harvest: { lead: "SLIDER", titled: "Green Harvest Burger", kcal: "180 kcal", ingredients: ["wheat", "tomato"] },
+  item_veg_club: { lead: "STACKED", titled: "Veg Club Sandwich", kcal: "200 kcal", ingredients: ["wheat", "cheese", "tomato"] },
+  item_cheddar: { lead: "BAKED", titled: "Chocolate Chunk Cookies", kcal: "220 kcal", ingredients: ["wheat", "butter"] },
+  item_bombay: { lead: "STACKED", titled: "Bombay Club Sandwich", kcal: "190 kcal", ingredients: ["wheat", "cheese", "tomato"] },
+  item_penne: { lead: "PASTA", titled: "Penne Creme Pesto", kcal: "340 kcal", ingredients: ["wheat", "cheese"] },
+  item_spaghetti: { lead: "PASTA", titled: "Spaghetti Aglio e Olio", kcal: "280 kcal", ingredients: ["wheat", "chilli"] },
+  item_risotto: { lead: "RICE", titled: "Saffron Risotto", kcal: "330 kcal", ingredients: ["cheese"] },
+  item_paneer: { lead: "GRILL", titled: "Marinated Grill Cottage Cheese", kcal: "380 kcal", ingredients: ["paneer"] }
+};
+function parseIngredientList(raw) {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const allowed = new Set(INGREDIENT_IDS);
+    return parsed.filter((id) => typeof id === "string" && allowed.has(id)).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+function serializeIngredients(ids) {
+  const allowed = new Set(INGREDIENT_IDS);
+  const clean = ids.filter((id) => allowed.has(id)).slice(0, 8);
+  return JSON.stringify(clean);
+}
+function defaultGuestMetaForCategory(categoryId, name) {
+  if (categoryId === DRINKS_CATEGORY_ID) {
+    return {
+      menuLead: "ICED",
+      menuSubtitle: name,
+      kcalLabel: "",
+      ingredients: ["coffee"]
+    };
+  }
+  return { menuLead: "", menuSubtitle: name, kcalLabel: "", ingredients: [] };
+}
 
 // server/appError.ts
 var AppError = class extends Error {
@@ -1281,6 +1542,41 @@ function listAllRecipes() {
     qtyPerPortion: row.qty_per_portion
   }));
 }
+var INGREDIENT_STOCK_IDS = new Set(Object.values(INGREDIENT_STOCK).map((entry) => entry.stockId));
+function syncRecipesFromIngredients(menuItemId, ingredients, categoryId) {
+  const menu = get("SELECT id FROM menu_items WHERE id = ? AND cafe_id = ?", [menuItemId, CAFE_ID]);
+  if (!menu) return;
+  const chosen = ingredients.filter((id) => INGREDIENT_IDS.includes(id));
+  const existing = all(
+    "SELECT inventory_item_id FROM menu_recipes WHERE menu_item_id = ?",
+    [menuItemId]
+  );
+  for (const row of existing) {
+    if (INGREDIENT_STOCK_IDS.has(row.inventory_item_id)) {
+      run("DELETE FROM menu_recipes WHERE menu_item_id = ? AND inventory_item_id = ?", [menuItemId, row.inventory_item_id]);
+    }
+  }
+  for (const id of chosen) {
+    const stock = INGREDIENT_STOCK[id];
+    const item = get("SELECT id FROM inventory_items WHERE id = ? AND cafe_id = ?", [stock.stockId, CAFE_ID]);
+    if (!item) continue;
+    run(
+      `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+       ON CONFLICT(menu_item_id, inventory_item_id) DO UPDATE SET qty_per_portion = excluded.qty_per_portion`,
+      [menuItemId, stock.stockId, stock.portion]
+    );
+  }
+  if (categoryId === "cat_drinks") {
+    const cup = get("SELECT id FROM inventory_items WHERE id = ?", ["inv_cups_8oz"]);
+    if (cup) {
+      run(
+        `INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty_per_portion) VALUES (?, ?, ?)
+         ON CONFLICT(menu_item_id, inventory_item_id) DO NOTHING`,
+        [menuItemId, "inv_cups_8oz", 1]
+      );
+    }
+  }
+}
 function saveMenuRecipes(menuItemId, lines) {
   const menu = get("SELECT id FROM menu_items WHERE id = ? AND cafe_id = ?", [menuItemId, CAFE_ID]);
   if (!menu) throw new AppError(404, "NOT_FOUND", "Menu item not found.");
@@ -1447,97 +1743,6 @@ function clearSessionCookie() {
 
 // server/logic.ts
 var import_node_crypto6 = require("node:crypto");
-
-// shared/menuDisplay.ts
-var INGREDIENT_IDS = [
-  "milk",
-  "soy",
-  "wheat",
-  "coffee",
-  "cocoa",
-  "egg",
-  "tea",
-  "potato",
-  "cheese",
-  "tomato",
-  "butter",
-  "mint",
-  "chilli",
-  "paneer"
-];
-var LEGACY_MENU_DISPLAY = {
-  item_moroccan: { lead: "BLENDED", titled: "Moroccan Avocado Smoothie", kcal: "210 kcal", ingredients: ["milk"] },
-  item_berry: { lead: "BLENDED", titled: "Berry Blast Shake", kcal: "185 kcal", ingredients: ["milk"] },
-  item_nutella: { lead: "HOT", titled: "Nutella Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
-  item_hazelnut: { lead: "HOT", titled: "Hazelnut Hot Chocolate", kcal: "180 kcal", ingredients: ["milk", "cocoa"] },
-  item_peach: { lead: "ICED", titled: "Peach Ice Tea", kcal: "120 kcal", ingredients: ["tea"] },
-  item_affogato: { lead: "CUP", titled: "Affogato", kcal: "223 kcal", ingredients: ["coffee", "milk"] },
-  item_mint_latte: { lead: "HOT", titled: "Mint Latte", kcal: "231 kcal", ingredients: ["coffee", "milk", "mint"] },
-  item_americano: { lead: "HOT", titled: "Cafe Americano", kcal: "25 kcal", ingredients: ["coffee"] },
-  item_filter: { lead: "HOT", titled: "Filter Coffee", kcal: "28 kcal", ingredients: ["coffee"] },
-  item_cardamom: { lead: "CUP", titled: "Cardamom Tea", kcal: "92 kcal", ingredients: ["tea", "milk"] },
-  item_ginger_tea: { lead: "CUP", titled: "Ginger Tea", kcal: "92 kcal", ingredients: ["tea"] },
-  item_espresso: { lead: "SHORT", titled: "Classic Espresso", kcal: "5 kcal", ingredients: ["coffee"] },
-  item_long_black: { lead: "LONG", titled: "Long Black", kcal: "10 kcal", ingredients: ["coffee"] },
-  item_cappuccino: { lead: "CUP", titled: "Cappuccino", kcal: "120 kcal", ingredients: ["milk", "coffee"] },
-  item_cap_alt: { lead: "CUP", titled: "Cappuccino with Almond or Oat", kcal: "90\u2013140 kcal", ingredients: ["milk", "coffee"] },
-  item_latte: { lead: "CUP", titled: "Cafe Latte", kcal: "150 kcal", ingredients: ["milk", "coffee"] },
-  item_flat_white: { lead: "CUP", titled: "Flat White", kcal: "140 kcal", ingredients: ["milk", "coffee"] },
-  item_cortado: { lead: "SHORT", titled: "Spanish Cortado", kcal: "80 kcal", ingredients: ["coffee", "milk"] },
-  item_mocha: { lead: "CUP", titled: "Chocolate Mocha", kcal: "220 kcal", ingredients: ["milk", "cocoa", "coffee"] },
-  item_cold_brew: { lead: "ICED", titled: "Cold Brew", kcal: "5 kcal", ingredients: ["coffee"] },
-  item_citrus_brew: { lead: "ICED", titled: "Citrus Cold Brew", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
-  item_saigon: { lead: "ICED", titled: "Saigon Cold Brew", kcal: "60 kcal", ingredients: ["coffee", "milk"] },
-  item_red_john: { lead: "ICED", titled: "Red John", kcal: "90 kcal", ingredients: ["coffee"] },
-  item_sparkling: { lead: "ICED", titled: "Sparkling Espresso", kcal: "180 kcal", ingredients: ["coffee"] },
-  item_tonic: { lead: "ICED", titled: "Cold Brew Tonic / Ginger Ale", kcal: "40\u201390 kcal", ingredients: ["coffee"] },
-  item_iced_americano: { lead: "ICED", titled: "Iced Americano", kcal: "10 kcal", ingredients: ["coffee"] },
-  item_halloumi: { lead: "SWEET", titled: "Strawberry Waffle", kcal: "310 kcal", ingredients: ["wheat", "butter"] },
-  item_avocado_toast: { lead: "SWEET", titled: "Butter Pancakes", kcal: "350 kcal", ingredients: ["wheat", "butter", "egg"] },
-  item_bruschetta: { lead: "BOARD", titled: "Bruschetta Board", kcal: "130 kcal", ingredients: ["wheat", "tomato"] },
-  item_karak_toast: { lead: "TOAST", titled: "Karak Chai Toast", kcal: "350 kcal", ingredients: ["wheat", "tea", "milk"] },
-  item_kebab: { lead: "SKEWER", titled: "Gillafi Dahike Kebab", kcal: "220 kcal", ingredients: ["milk"] },
-  item_mezze: { lead: "PLATE", titled: "Mezze Platter", kcal: "310 kcal", ingredients: ["wheat", "tomato"] },
-  item_quesadilla: { lead: "FOLDED", titled: "Mexican Quesadilla", kcal: "320 kcal", ingredients: ["wheat", "cheese"] },
-  item_cheese_balls: { lead: "FRIED", titled: "Jalape\xF1o Cheese Balls", kcal: "190 kcal", ingredients: ["cheese", "wheat"] },
-  item_healthy_bowl: { lead: "BOWL", titled: "Healthy Bowl", kcal: "320 kcal", ingredients: ["tomato"] },
-  item_house_salad: { lead: "BOWL", titled: "House Salad", kcal: "170 kcal", ingredients: ["tomato"] },
-  item_harvest: { lead: "SLIDER", titled: "Green Harvest Burger", kcal: "180 kcal", ingredients: ["wheat", "tomato"] },
-  item_veg_club: { lead: "STACKED", titled: "Veg Club Sandwich", kcal: "200 kcal", ingredients: ["wheat", "cheese", "tomato"] },
-  item_cheddar: { lead: "BAKED", titled: "Chocolate Chunk Cookies", kcal: "220 kcal", ingredients: ["wheat", "butter"] },
-  item_bombay: { lead: "STACKED", titled: "Bombay Club Sandwich", kcal: "190 kcal", ingredients: ["wheat", "cheese", "tomato"] },
-  item_penne: { lead: "PASTA", titled: "Penne Creme Pesto", kcal: "340 kcal", ingredients: ["wheat", "cheese"] },
-  item_spaghetti: { lead: "PASTA", titled: "Spaghetti Aglio e Olio", kcal: "280 kcal", ingredients: ["wheat", "chilli"] },
-  item_risotto: { lead: "RICE", titled: "Saffron Risotto", kcal: "330 kcal", ingredients: ["cheese"] },
-  item_paneer: { lead: "GRILL", titled: "Marinated Grill Cottage Cheese", kcal: "380 kcal", ingredients: ["paneer"] }
-};
-function parseIngredientList(raw) {
-  if (!raw?.trim()) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const allowed = new Set(INGREDIENT_IDS);
-    return parsed.filter((id) => typeof id === "string" && allowed.has(id)).slice(0, 8);
-  } catch {
-    return [];
-  }
-}
-function serializeIngredients(ids) {
-  const allowed = new Set(INGREDIENT_IDS);
-  const clean = ids.filter((id) => allowed.has(id)).slice(0, 8);
-  return JSON.stringify(clean);
-}
-function defaultGuestMetaForCategory(categoryId, name) {
-  if (categoryId === DRINKS_CATEGORY_ID) {
-    return {
-      menuLead: "ICED",
-      menuSubtitle: name,
-      kcalLabel: "",
-      ingredients: ["coffee"]
-    };
-  }
-  return { menuLead: "", menuSubtitle: name, kcalLabel: "", ingredients: [] };
-}
 
 // server/otp.ts
 var import_node_crypto3 = require("node:crypto");
@@ -1851,7 +2056,7 @@ function loadCatalog() {
   }));
   const links = all("SELECT menu_item_id, addon_group_id FROM menu_item_addon_groups");
   const items = all(
-    "SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name",
+    "SELECT id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, sheet_json FROM menu_items WHERE cafe_id = ? ORDER BY sort_order, name",
     [CAFE_ID]
   ).map(
     (row) => ({
@@ -1871,7 +2076,8 @@ function loadCatalog() {
       menuSubtitle: row.menu_subtitle ?? "",
       kcalLabel: row.kcal_label ?? "",
       ingredients: parseIngredientList(row.ingredients_json),
-      addonGroupIds: links.filter((link) => link.menu_item_id === row.id).map((link) => link.addon_group_id)
+      addonGroupIds: links.filter((link) => link.menu_item_id === row.id).map((link) => link.addon_group_id),
+      sheet: parseProductSheet(row.sheet_json)
     })
   );
   return { cafe, categories, items, addonGroups };
@@ -1951,11 +2157,12 @@ function getOrderByClientKey(clientKey) {
 function insertPricedOrder(input) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const orderNumber = takeNumber();
+  const openSessionId = get(`SELECT id FROM pos_sessions WHERE status = 'OPEN' ORDER BY opened_at DESC LIMIT 1`)?.id ?? null;
   run(
     `INSERT INTO orders (
       id, order_number, cafe_id, table_id, table_name, customer_id, customer_name, customer_mobile,
-      status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      status, payment_status, subtotal, tax, discount, total, source, notes, client_key, created_at, updated_at, synced_at, session_id
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'UNPAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       orderNumber,
@@ -1974,7 +2181,8 @@ function insertPricedOrder(input) {
       input.clientKey,
       now,
       now,
-      now
+      now,
+      openSessionId
     ]
   );
   writeQuoteLines(input.id, input.quote);
@@ -2144,8 +2352,9 @@ function replaceStaffOrderItems(orderId, input) {
 function takeNumber() {
   const row = get("SELECT next_number FROM order_counters WHERE cafe_id = ?", [CAFE_ID]);
   if (!row) throw new AppError(500, "COUNTER", "Order counter is missing.");
-  run("UPDATE order_counters SET next_number = ? WHERE cafe_id = ?", [row.next_number + 1, CAFE_ID]);
-  return row.next_number;
+  const issued = Math.max(100, row.next_number);
+  run("UPDATE order_counters SET next_number = ? WHERE cafe_id = ?", [issued + 1, CAFE_ID]);
+  return issued;
 }
 function refreshTable(tableId) {
   if (!tableId) return;
@@ -2664,6 +2873,28 @@ function splitStaffOrder(orderId, parts) {
   if (parent) notify(parent);
   return children;
 }
+function parseProductSheet(raw) {
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = {};
+  }
+  const productType = data.productType === "service" || data.productType === "combo" ? data.productType : "goods";
+  return {
+    productType,
+    trackInventory: Boolean(data.trackInventory),
+    sales: data.sales !== false,
+    purchase: data.purchase !== false,
+    pos: data.pos !== false,
+    salesTax: typeof data.salesTax === "string" ? data.salesTax.slice(0, 40) : "",
+    cost: typeof data.cost === "string" ? data.cost.slice(0, 16) : "",
+    purchaseTax: typeof data.purchaseTax === "string" ? data.purchaseTax.slice(0, 40) : "",
+    reference: typeof data.reference === "string" ? data.reference.slice(0, 40) : "",
+    barcode: typeof data.barcode === "string" ? data.barcode.slice(0, 40) : "",
+    tags: typeof data.tags === "string" ? data.tags.slice(0, 80) : ""
+  };
+}
 function itemEvent(item) {
   return {
     id: item.id,
@@ -2682,7 +2913,8 @@ function itemEvent(item) {
     menuLead: item.menuLead,
     menuSubtitle: item.menuSubtitle,
     kcalLabel: item.kcalLabel,
-    ingredients: item.ingredients
+    ingredients: item.ingredients,
+    sheet: item.sheet
   };
 }
 function cleanNumericShortcut(value) {
@@ -2714,6 +2946,10 @@ function assertShortcutFree(itemId, num, alpha) {
 function updateMenuItem(id, patch) {
   const current2 = loadCatalog().items.find((item2) => item2.id === id);
   if (!current2) throw new AppError(404, "NOT_FOUND", "Menu item not found.");
+  const categoryId = patch.categoryId !== void 0 ? patch.categoryId : current2.categoryId;
+  if (!loadCatalog().categories.some((entry) => entry.id === categoryId)) {
+    throw new AppError(404, "NOT_FOUND", "Category not found.");
+  }
   const next = {
     name: patch.name !== void 0 ? cleanName(patch.name) : current2.name,
     description: patch.description !== void 0 ? patch.description.trim().slice(0, 400) : current2.description,
@@ -2727,7 +2963,9 @@ function updateMenuItem(id, patch) {
     menuLead: patch.menuLead !== void 0 ? patch.menuLead.trim().slice(0, 24) : current2.menuLead,
     menuSubtitle: patch.menuSubtitle !== void 0 ? patch.menuSubtitle.trim().slice(0, 80) : current2.menuSubtitle,
     kcalLabel: patch.kcalLabel !== void 0 ? patch.kcalLabel.trim().slice(0, 40) : current2.kcalLabel,
-    ingredients: patch.ingredients !== void 0 ? parseIngredientList(serializeIngredients(patch.ingredients)) : current2.ingredients
+    ingredients: patch.ingredients !== void 0 ? parseIngredientList(serializeIngredients(patch.ingredients)) : current2.ingredients,
+    categoryId,
+    sheet: patch.sheet !== void 0 ? parseProductSheet(JSON.stringify(patch.sheet)) : current2.sheet ?? parseProductSheet(null)
   };
   if (!Number.isInteger(next.price) || next.price < 0 || next.price > 1e5) throw new AppError(400, "PRICE", "Enter a valid price.");
   if (next.shortcutNum && next.shortcutAlpha && next.shortcutNum === next.shortcutAlpha) {
@@ -2736,7 +2974,7 @@ function updateMenuItem(id, patch) {
   assertShortcutFree(id, next.shortcutNum, next.shortcutAlpha);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   run(
-    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE menu_items SET name = ?, description = ?, price = ?, is_available = ?, image_url = ?, is_veg = ?, is_favorite = ?, shortcut_num = ?, shortcut_alpha = ?, menu_lead = ?, menu_subtitle = ?, kcal_label = ?, ingredients_json = ?, category_id = ?, sheet_json = ?, updated_at = ? WHERE id = ?`,
     [
       next.name,
       next.description,
@@ -2751,11 +2989,14 @@ function updateMenuItem(id, patch) {
       next.menuSubtitle,
       next.kcalLabel,
       serializeIngredients(next.ingredients),
+      next.categoryId,
+      JSON.stringify(next.sheet),
       now,
       id
     ]
   );
   const item = loadCatalog().items.find((entry) => entry.id === id);
+  syncRecipesFromIngredients(id, item.ingredients, item.categoryId);
   publish({ type: "menu.updated", item: itemEvent(item) });
   return item;
 }
@@ -2868,8 +3109,8 @@ function createMenuItem(input) {
     serializeIngredients(input.ingredients?.length ? input.ingredients : guestDefaults.ingredients)
   );
   run(
-    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO menu_items (id, cafe_id, category_id, name, description, price, image_url, is_veg, is_available, is_favorite, shortcut_num, shortcut_alpha, sort_order, menu_lead, menu_subtitle, kcal_label, ingredients_json, sheet_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       CAFE_ID,
@@ -2887,12 +3128,14 @@ function createMenuItem(input) {
       menuSubtitle,
       kcalLabel,
       serializeIngredients(ingredients),
+      JSON.stringify(parseProductSheet(JSON.stringify(input.sheet ?? {}))),
       now
     ]
   );
   const addonGroupIds = input.addonGroupIds?.length ? input.addonGroupIds : defaultAddonGroupsForCategory(input.categoryId);
   if (addonGroupIds.length) setItemGroups(id, addonGroupIds);
   const item = loadCatalog().items.find((entry) => entry.id === id);
+  syncRecipesFromIngredients(id, item.ingredients, item.categoryId);
   publish({ type: "menu.updated", item: itemEvent(item) });
   return item;
 }
@@ -3270,7 +3513,9 @@ function applySyncBatch(operations) {
           menuLead: payload.menuLead,
           menuSubtitle: payload.menuSubtitle,
           kcalLabel: payload.kcalLabel,
-          ingredients: payload.ingredients
+          ingredients: payload.ingredients,
+          categoryId: payload.categoryId,
+          sheet: payload.sheet
         });
         results.push({ id: op.id, ok: true, item });
         continue;
@@ -3297,6 +3542,419 @@ function applySyncBatch(operations) {
     }
   }
   return results;
+}
+
+// server/posSession.ts
+var import_node_crypto7 = require("node:crypto");
+var DEFAULT_CONFIG_ID = "pos_config_restaurant";
+function mapSession(row) {
+  return {
+    id: row.id,
+    configId: row.config_id,
+    configName: row.config_name,
+    sequence: Number(row.sequence) || 0,
+    status: row.status,
+    openedAt: row.opened_at,
+    closedAt: row.closed_at,
+    openedBy: row.opened_by,
+    openingCash: row.opening_cash,
+    closingCash: row.closing_cash,
+    countedCash: row.counted_cash,
+    notes: row.notes
+  };
+}
+function nextSequence(configId) {
+  const row = get(
+    "SELECT COALESCE(MAX(sequence), 0) + 1 AS n FROM pos_sessions WHERE config_id = ?",
+    [configId]
+  );
+  return row?.n ?? 1;
+}
+function ensureSessionSequences() {
+  const configs = all(
+    `SELECT DISTINCT config_id FROM pos_sessions WHERE sequence IS NULL OR sequence = 0`
+  );
+  for (const { config_id } of configs) {
+    const rows = all(
+      "SELECT id FROM pos_sessions WHERE config_id = ? ORDER BY opened_at ASC",
+      [config_id]
+    );
+    rows.forEach((row, index) => {
+      run("UPDATE pos_sessions SET sequence = ? WHERE id = ?", [index + 1, row.id]);
+    });
+  }
+}
+function ensurePosDefaults() {
+  const cafe = get("SELECT id FROM cafes WHERE id = ?", [CAFE_ID]);
+  if (!cafe) return;
+  if (!get("SELECT id FROM pos_configs WHERE id = ?", [DEFAULT_CONFIG_ID])) {
+    run("INSERT INTO pos_configs (id, cafe_id, name, is_restaurant) VALUES (?, ?, ?, 1)", [
+      DEFAULT_CONFIG_ID,
+      CAFE_ID,
+      "Restaurant"
+    ]);
+  }
+  const defaultFloors = [
+    { id: "floor_main", name: "Main Floor", sort: 0 },
+    { id: "floor_patio", name: "Patio", sort: 1 },
+    { id: "floor_terrace", name: "Terrace", sort: 2 },
+    { id: "floor_rooftop", name: "Rooftop", sort: 3 },
+    { id: "floor_lounge", name: "Lounge", sort: 4 }
+  ];
+  for (const floor of defaultFloors) {
+    if (get("SELECT id FROM floors WHERE id = ?", [floor.id])) continue;
+    if (get("SELECT id FROM floors WHERE cafe_id = ? AND name = ?", [CAFE_ID, floor.name])) continue;
+    run("INSERT INTO floors (id, cafe_id, name, sort_order, background) VALUES (?, ?, ?, ?, ?)", [
+      floor.id,
+      CAFE_ID,
+      floor.name,
+      floor.sort,
+      "white"
+    ]);
+  }
+  const extraTables = [
+    ...[21, 22, 23, 24].map((n) => ({ name: `T${String(n).padStart(2, "0")}`, qr: `T${String(n).padStart(2, "0")}`, area: "Terrace" })),
+    ...[25, 26, 27, 28].map((n) => ({ name: `T${String(n).padStart(2, "0")}`, qr: `T${String(n).padStart(2, "0")}`, area: "Rooftop" })),
+    ...[29, 30, 31, 32].map((n) => ({ name: `T${String(n).padStart(2, "0")}`, qr: `T${String(n).padStart(2, "0")}`, area: "Lounge" }))
+  ];
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  for (const table of extraTables) {
+    run(
+      `INSERT OR IGNORE INTO tables (id, cafe_id, name, qr_code, status, area, updated_at)
+       VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?)`,
+      [`table_${table.qr.toLowerCase()}`, CAFE_ID, table.name, table.qr, table.area, nowIso]
+    );
+  }
+  const tables = all(
+    "SELECT id, name, COALESCE(area, 'Ground Floor') AS area FROM tables WHERE cafe_id = ? ORDER BY name",
+    [CAFE_ID]
+  );
+  const floorIdByName = (name, fallback) => get("SELECT id FROM floors WHERE cafe_id = ? AND name = ?", [CAFE_ID, name])?.id ?? fallback;
+  const floorForArea = (area) => {
+    if (/terrace/i.test(area)) return floorIdByName("Terrace", "floor_terrace");
+    if (/rooftop/i.test(area)) return floorIdByName("Rooftop", "floor_rooftop");
+    if (/lounge/i.test(area)) return floorIdByName("Lounge", "floor_lounge");
+    if (/patio|basement|party/i.test(area)) return floorIdByName("Patio", "floor_patio");
+    return floorIdByName("Main Floor", "floor_main");
+  };
+  const counters = /* @__PURE__ */ new Map();
+  for (const table of tables) {
+    if (get("SELECT table_id FROM table_geometry WHERE table_id = ?", [table.id])) continue;
+    const floorId = floorForArea(table.area);
+    const index = counters.get(floorId) ?? 0;
+    counters.set(floorId, index + 1);
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const wide = Number.parseInt(table.name.replace(/\D/g, ""), 10) % 3 === 0;
+    run(
+      `INSERT INTO table_geometry (table_id, floor_id, x, y, w, h, seats, shape, color)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        table.id,
+        floorId,
+        40 + col * 140,
+        40 + row * 120,
+        wide ? 160 : 90,
+        90,
+        wide ? 6 : 4,
+        wide ? "rect" : "square",
+        index < 6 ? "#111111" : index < 10 ? "#666666" : "#999999"
+      ]
+    );
+  }
+}
+function getPosConfig(configId) {
+  ensurePosDefaults();
+  const row = configId ? get(
+    "SELECT id, name, is_restaurant FROM pos_configs WHERE cafe_id = ? AND id = ?",
+    [CAFE_ID, configId]
+  ) : get(
+    "SELECT id, name, is_restaurant FROM pos_configs WHERE cafe_id = ? ORDER BY id LIMIT 1",
+    [CAFE_ID]
+  );
+  if (!row) throw new AppError(500, "POS", "POS config missing.");
+  return { id: row.id, name: row.name, isRestaurant: !!row.is_restaurant };
+}
+function listPosConfigs() {
+  ensurePosDefaults();
+  return all(
+    "SELECT id, name, is_restaurant FROM pos_configs WHERE cafe_id = ? ORDER BY id",
+    [CAFE_ID]
+  ).map((row) => ({ id: row.id, name: row.name, isRestaurant: !!row.is_restaurant }));
+}
+function getOpenSession(configId) {
+  ensurePosDefaults();
+  const row = configId ? get(
+    `SELECT s.id, s.config_id, c.name AS config_name, s.sequence, s.status, s.opened_at, s.closed_at, s.opened_by,
+                s.opening_cash, s.closing_cash, s.counted_cash, s.notes
+         FROM pos_sessions s
+         JOIN pos_configs c ON c.id = s.config_id
+         WHERE c.cafe_id = ? AND s.status = 'OPEN' AND s.config_id = ?
+         ORDER BY s.opened_at DESC LIMIT 1`,
+    [CAFE_ID, configId]
+  ) : get(
+    `SELECT s.id, s.config_id, c.name AS config_name, s.sequence, s.status, s.opened_at, s.closed_at, s.opened_by,
+                s.opening_cash, s.closing_cash, s.counted_cash, s.notes
+         FROM pos_sessions s
+         JOIN pos_configs c ON c.id = s.config_id
+         WHERE c.cafe_id = ? AND s.status = 'OPEN'
+         ORDER BY s.opened_at DESC LIMIT 1`,
+    [CAFE_ID]
+  );
+  return row ? mapSession(row) : null;
+}
+function salesSeriesForSession(sessionId) {
+  const rows = all(
+    `SELECT total, COALESCE(updated_at, created_at) AS at
+     FROM orders
+     WHERE session_id = ? AND payment_status = 'PAID' AND status != 'CANCELLED'
+     ORDER BY COALESCE(updated_at, created_at) ASC`,
+    [sessionId]
+  );
+  const buckets = 32;
+  const series = Array.from({ length: buckets }, () => 0);
+  if (!rows.length) return series;
+  const session = get("SELECT opened_at FROM pos_sessions WHERE id = ?", [sessionId]);
+  const openedAt = session ? Date.parse(session.opened_at) : Date.parse(rows[0].at);
+  const now = Date.now();
+  const span = Math.max(now - openedAt, 6e4);
+  for (const row of rows) {
+    const t = Date.parse(row.at);
+    const frac = Number.isFinite(t) ? (t - openedAt) / span : 1;
+    const idx = Math.min(buckets - 1, Math.max(0, Math.floor(frac * buckets)));
+    series[idx] += row.total;
+  }
+  return series;
+}
+function sessionStats(sessionId) {
+  const session = sessionId ? get("SELECT opening_cash FROM pos_sessions WHERE id = ?", [sessionId]) : null;
+  const openingCash = session?.opening_cash ?? 0;
+  if (!sessionId) {
+    return {
+      openingCash: 0,
+      soldTotal: 0,
+      soldOrders: 0,
+      ongoingTotal: 0,
+      ongoingOrders: 0,
+      salesSeries: []
+    };
+  }
+  const sold = get(
+    `SELECT COALESCE(SUM(total), 0) AS total, COUNT(*) AS count
+     FROM orders WHERE session_id = ? AND payment_status = 'PAID' AND status != 'CANCELLED'`,
+    [sessionId]
+  );
+  const placeholders = OPEN_STATUSES.map(() => "?").join(",");
+  const ongoing = get(
+    `SELECT COALESCE(SUM(total), 0) AS total, COUNT(*) AS count
+     FROM orders WHERE session_id = ? AND payment_status != 'PAID' AND status IN (${placeholders})`,
+    [sessionId, ...OPEN_STATUSES]
+  );
+  return {
+    openingCash,
+    soldTotal: sold?.total ?? 0,
+    soldOrders: sold?.count ?? 0,
+    ongoingTotal: ongoing?.total ?? 0,
+    ongoingOrders: ongoing?.count ?? 0,
+    salesSeries: salesSeriesForSession(sessionId)
+  };
+}
+function posDashboard() {
+  const configs = listPosConfigs();
+  const cards = configs.map((config) => {
+    const session = getOpenSession(config.id);
+    return { config, session, stats: sessionStats(session?.id ?? null) };
+  });
+  const primary = cards[0] ?? null;
+  return {
+    config: primary?.config ?? getPosConfig(),
+    session: primary?.session ?? null,
+    stats: primary?.stats ?? sessionStats(null),
+    cards
+  };
+}
+function openSession(input) {
+  ensurePosDefaults();
+  const config = getPosConfig(input.configId);
+  const existing = getOpenSession(config.id);
+  if (existing) return existing;
+  const openingCash = Math.max(0, Number(input.openingCash) || 0);
+  const id = `ps_${(0, import_node_crypto7.randomUUID)().replace(/-/g, "").slice(0, 16)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const sequence = nextSequence(config.id);
+  run(
+    `INSERT INTO pos_sessions (id, config_id, status, opened_at, closed_at, opened_by, opening_cash, closing_cash, counted_cash, notes, sequence)
+     VALUES (?, ?, 'OPEN', ?, NULL, ?, ?, NULL, NULL, '', ?)`,
+    [id, config.id, now, input.userName.slice(0, 80) || "Staff", openingCash, sequence]
+  );
+  const session = getOpenSession(config.id);
+  if (!session) throw new AppError(500, "POS", "Failed to open session.");
+  return session;
+}
+function closeSession(input) {
+  const open = getOpenSession();
+  if (!open) throw new AppError(409, "POS", "No open register session.");
+  const stats = sessionStats(open.id);
+  const cashIn = all(
+    `SELECT amount FROM pos_cash_moves WHERE session_id = ? AND kind = 'IN'`,
+    [open.id]
+  ).reduce((s, r) => s + r.amount, 0);
+  const cashOut = all(
+    `SELECT amount FROM pos_cash_moves WHERE session_id = ? AND kind = 'OUT'`,
+    [open.id]
+  ).reduce((s, r) => s + r.amount, 0);
+  const paidCash = get(
+    `SELECT COALESCE(SUM(p.amount), 0) AS total
+     FROM payments p
+     JOIN orders o ON o.id = p.order_id
+     WHERE o.session_id = ? AND p.status = 'PAID' AND p.method = 'CASH'`,
+    [open.id]
+  )?.total ?? 0;
+  const expectedCash = open.openingCash + paidCash + cashIn - cashOut;
+  const countedCash = Math.max(0, Number(input.countedCash) || 0);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const notes = (input.notes ?? "").trim();
+  run(
+    `UPDATE pos_sessions SET status = 'CLOSED', closed_at = ?, closing_cash = ?, counted_cash = ?, notes = ?
+     WHERE id = ?`,
+    [now, expectedCash, countedCash, notes, open.id]
+  );
+  const row = get(
+    `SELECT s.id, s.config_id, c.name AS config_name, s.sequence, s.status, s.opened_at, s.closed_at, s.opened_by,
+            s.opening_cash, s.closing_cash, s.counted_cash, s.notes
+     FROM pos_sessions s JOIN pos_configs c ON c.id = s.config_id WHERE s.id = ?`,
+    [open.id]
+  );
+  if (!row) throw new AppError(500, "POS", "Failed to close session.");
+  void stats;
+  return mapSession(row);
+}
+function listSessions(limit = 200) {
+  ensurePosDefaults();
+  ensureSessionSequences();
+  const rows = all(
+    `SELECT s.id, s.config_id, c.name AS config_name, s.sequence, s.status, s.opened_at, s.closed_at, s.opened_by,
+            s.opening_cash, s.closing_cash, s.counted_cash, s.notes
+     FROM pos_sessions s
+     JOIN pos_configs c ON c.id = s.config_id
+     WHERE c.cafe_id = ?
+     ORDER BY s.opened_at DESC LIMIT ?`,
+    [CAFE_ID, limit]
+  );
+  return rows.map(mapSession);
+}
+function cashMove(input) {
+  const open = getOpenSession();
+  if (!open) throw new AppError(409, "POS", "Open the register first.");
+  const amount = Math.max(0, Number(input.amount) || 0);
+  if (amount <= 0) throw new AppError(400, "AMOUNT", "Enter an amount.");
+  const id = `cm_${(0, import_node_crypto7.randomUUID)().replace(/-/g, "").slice(0, 16)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  run(
+    `INSERT INTO pos_cash_moves (id, session_id, kind, amount, reason, created_at, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, open.id, input.kind, amount, input.reason.trim().slice(0, 240), now, input.actor.slice(0, 80)]
+  );
+  return {
+    id,
+    sessionId: open.id,
+    kind: input.kind,
+    amount,
+    reason: input.reason.trim(),
+    createdAt: now,
+    actor: input.actor
+  };
+}
+function listFloors() {
+  ensurePosDefaults();
+  const floors = all(
+    "SELECT id, name, sort_order, background FROM floors WHERE cafe_id = ? ORDER BY sort_order, name",
+    [CAFE_ID]
+  ).map((f) => ({ id: f.id, name: f.name, sortOrder: f.sort_order, background: f.background }));
+  const geometry = all(
+    `SELECT g.table_id, g.floor_id, g.x, g.y, g.w, g.h, g.seats, g.shape, g.color
+     FROM table_geometry g
+     JOIN tables t ON t.id = g.table_id
+     WHERE t.cafe_id = ?`,
+    [CAFE_ID]
+  ).map((g) => ({
+    tableId: g.table_id,
+    floorId: g.floor_id,
+    x: g.x,
+    y: g.y,
+    w: g.w,
+    h: g.h,
+    seats: g.seats,
+    shape: g.shape,
+    color: g.color
+  }));
+  return { floors, geometry };
+}
+function saveFloors(payload) {
+  ensurePosDefaults();
+  tx(() => {
+    for (const floor of payload.floors) {
+      const existing = get("SELECT id FROM floors WHERE id = ? AND cafe_id = ?", [floor.id, CAFE_ID]);
+      if (existing) {
+        run("UPDATE floors SET name = ?, sort_order = ?, background = ? WHERE id = ?", [
+          floor.name,
+          floor.sortOrder,
+          floor.background,
+          floor.id
+        ]);
+      } else {
+        run("INSERT INTO floors (id, cafe_id, name, sort_order, background) VALUES (?, ?, ?, ?, ?)", [
+          floor.id,
+          CAFE_ID,
+          floor.name,
+          floor.sortOrder,
+          floor.background
+        ]);
+      }
+    }
+    for (const g of payload.geometry) {
+      run(
+        `INSERT INTO table_geometry (table_id, floor_id, x, y, w, h, seats, shape, color)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(table_id) DO UPDATE SET
+           floor_id = excluded.floor_id, x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h,
+           seats = excluded.seats, shape = excluded.shape, color = excluded.color`,
+        [g.tableId, g.floorId, g.x, g.y, g.w, g.h, g.seats, g.shape, g.color]
+      );
+    }
+  });
+  return listFloors();
+}
+function closingPreview() {
+  const open = getOpenSession();
+  if (!open) throw new AppError(409, "POS", "No open register session.");
+  const stats = sessionStats(open.id);
+  const byMethod = all(
+    `SELECT p.method AS method, COALESCE(SUM(p.amount), 0) AS total
+     FROM payments p
+     JOIN orders o ON o.id = p.order_id
+     WHERE o.session_id = ? AND p.status = 'PAID'
+     GROUP BY p.method`,
+    [open.id]
+  );
+  const cashIn = all(
+    `SELECT amount FROM pos_cash_moves WHERE session_id = ? AND kind = 'IN'`,
+    [open.id]
+  ).reduce((s, r) => s + r.amount, 0);
+  const cashOut = all(
+    `SELECT amount FROM pos_cash_moves WHERE session_id = ? AND kind = 'OUT'`,
+    [open.id]
+  ).reduce((s, r) => s + r.amount, 0);
+  const cashPaid = byMethod.find((m) => m.method === "CASH")?.total ?? 0;
+  const expectedCash = open.openingCash + cashPaid + cashIn - cashOut;
+  return {
+    session: open,
+    stats,
+    byMethod,
+    cashIn,
+    cashOut,
+    expectedCash,
+    durationMs: Date.now() - new Date(open.openedAt).getTime()
+  };
 }
 
 // server/http.ts
@@ -3557,7 +4215,7 @@ app.post("/api/media/upload", requireAuth, wrap((req, res) => {
   const body = mediaUploadSchema.parse(req.body);
   const ext = body.mime === "image/png" ? "png" : body.mime === "image/webp" ? "webp" : "jpg";
   const safe = body.filename.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "photo";
-  const name = `${Date.now()}-${(0, import_node_crypto7.randomUUID)().slice(0, 8)}-${safe}.${ext}`;
+  const name = `${Date.now()}-${(0, import_node_crypto8.randomUUID)().slice(0, 8)}-${safe}.${ext}`;
   const dir = import_node_path2.default.join(process.cwd(), "public", "uploads");
   (0, import_node_fs4.mkdirSync)(dir, { recursive: true });
   const raw = body.contentBase64.replace(/^data:[^;]+;base64,/, "");
@@ -3679,6 +4337,43 @@ app.put("/api/inventory/recipes/:menuItemId", requireAuth, wrap((req, res) => {
   const body = menuRecipesSchema.parse(req.body);
   res.json({ lines: saveMenuRecipes(idOf(req.params.menuItemId), body.lines) });
 }));
+app.get("/api/pos/dashboard", requireAuth, wrap((_req, res) => {
+  res.json(posDashboard());
+}));
+app.post("/api/pos/session/open", requireAuth, wrap((req, res) => {
+  const openingCash = typeof req.body?.openingCash === "number" ? req.body.openingCash : Number(req.body?.openingCash ?? 0);
+  const configId = typeof req.body?.configId === "string" ? req.body.configId : void 0;
+  const session = openSession({ openingCash, userName: req.user?.name ?? "Staff", configId });
+  res.json({ session, stats: sessionStats(session.id), config: getPosConfig(session.configId) });
+}));
+app.post("/api/pos/session/close", requireAuth, wrap((req, res) => {
+  const countedCash = typeof req.body?.countedCash === "number" ? req.body.countedCash : Number(req.body?.countedCash ?? 0);
+  const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+  const session = closeSession({ countedCash, notes });
+  res.json({ session });
+}));
+app.get("/api/pos/session/closing", requireAuth, wrap((_req, res) => {
+  res.json(closingPreview());
+}));
+app.post("/api/pos/cash-move", requireAuth, wrap((req, res) => {
+  const kind = req.body?.kind === "OUT" ? "OUT" : "IN";
+  const amount = typeof req.body?.amount === "number" ? req.body.amount : Number(req.body?.amount ?? 0);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason : "";
+  res.json({
+    move: cashMove({ kind, amount, reason, actor: req.user?.name ?? "Staff" })
+  });
+}));
+app.get("/api/pos/sessions", requireAuth, wrap((_req, res) => {
+  res.json({ sessions: listSessions() });
+}));
+app.get("/api/pos/floors", requireAuth, wrap((_req, res) => {
+  res.json(listFloors());
+}));
+app.put("/api/pos/floors", requireAuth, wrap((req, res) => {
+  const floors = Array.isArray(req.body?.floors) ? req.body.floors : [];
+  const geometry = Array.isArray(req.body?.geometry) ? req.body.geometry : [];
+  res.json(saveFloors({ floors, geometry }));
+}));
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Not found.", code: "NOT_FOUND" });
 });
@@ -3738,48 +4433,75 @@ var plate = (id, name, price, description, categoryId, image) => ({
   coffee: false
 });
 var MENU = [
-  drink("item_moroccan", "Moroccan Avocado Smoothie", 250, "Ripe avocado is blended with cold milk until the glass turns pale green and thick enough to hold a straw. A little citrus keeps it bright, so the avocado stays fresh instead of heavy. Poured into a 240 ml glass and served while the top is still frothy. This is a spoon-thick smoothie, not a juice.", "/items/cut/smoothie.png"),
-  drink("item_mint_latte", "Mint Latte", 185, "Espresso folded through steamed milk, with mint so the cup smells green before it tastes sweet. The milk is stretched glossy, not scalded, and the mint stays fresh instead of sharp. A short foam lid sits on top. Ask if you want it lightly sweet.", "/items/cut/mint.png"),
-  drink("item_espresso", "Classic Espresso", 150, "A short, concentrated shot pulled so the crema stays thick and the finish turns sweet before it goes sharp. Served in a warm cup with sparkling water on the side. Two sips, then it is gone. The crema should cover the surface.", "/items/cut/espresso.png"),
-  drink("item_cappuccino", "Cappuccino", 180, "Espresso under steamed milk and a dry foam cap tall enough to hold a spoon. The milk is stretched until glossy, then poured so the cap stays high instead of sinking into a latte. The cup is warmed before the pour. Foam should reach the rim.", "/items/cut/cappuccino.png"),
-  drink("item_mocha", "Chocolate Mocha", 220, "Cocoa melted into the espresso first, then milk poured through so the chocolate stays a little bitter rather than candy-sweet. The cocoa goes in before the milk, so it does not sit as powder at the bottom. Hot, and meant to be stirred once.", "/items/cut/mocha.png"),
-  drink("item_cold_brew", "Cold Brew", 210, "Coffee steeped cold for hours, then poured over ice so it stays smooth and low on bitterness. No blender, and no milk in the base glass. It should taste like coffee that has been patient, not like a watered-down iced americano. Drink it before the ice thins it.", "/items/cut/cold-brew.png"),
-  drink("item_iced_americano", "Iced Americano", 210, "Espresso poured over ice and cold water. The shot is hot when it hits the ice, so it chills without a blender watering it down. Darker and cleaner than an iced latte. No milk in the base glass. Finish it before the ice gives up.", "/items/cut/iced.png"),
-  drink("item_saigon", "Saigon Cold Brew", 230, "Cold brew sweetened with Vietnamese condensed milk until the glass ribbons tan and white. The milk is stirred through, not left as a puddle, so every sip is sweet and strong together. Iced, dense, and more dessert than a black cold brew.", "/items/cut/saigon.png"),
-  drink("item_sparkling", "Sparkling Espresso", 210, "Cold brew sweetened with condensed milk, then opened so the cup is sweet and cold. Ice first, coffee and milk through it. The published cup is that condensed-milk cold brew. Drink it while the glass is still cold.", "/items/cut/sparkling.png"),
-  drink("item_red_john", "Red John", 225, "Cold brew lengthened with orange and tonic until the glass is bright, bitter, and cold. The coffee is still there under the citrus. Built over ice so it stays lively instead of going flat. A long drink, not a shot.", "/items/cut/red-john.png"),
-  drink("item_tonic", "Cold Brew Tonic / Ginger Ale", 220, "Espresso or cold brew poured over ice and tonic, or ginger ale if you would rather the spice. The bubbles lift the coffee and keep it long and cold. Built in the glass, not shaken, so you can still see the ice.", "/items/cut/tonic.png"),
-  plate("item_halloumi", "Strawberry Waffle", 210, "A round waffle, crisp at the edge and soft in the pockets, with strawberries and a little syrup in the squares. Served warm so the fruit stays bright and the waffle has not gone soggy. Sweet, and meant to be eaten while it is still hot.", "cat_canapes", "/items/cut/waffle.png"),
-  plate("item_avocado_toast", "Butter Pancakes", 210, "A short stack of pancakes with butter on top and syrup running down the side. The centres stay soft and the edges are just browned. Served warm, as a plate, not a side. Eat them before the syrup soaks the stack through.", "cat_canapes", "/items/cut/pancakes.png"),
-  plate("item_cheddar", "Chocolate Chunk Cookies", 175, "Two thick cookies with chocolate chunks through the dough, baked so the edge is set and the middle is still a little soft. Served warm enough that the chocolate gives. A small plate, meant with coffee.", "cat_sliders", "/items/cut/cookies.png"),
-  plate("item_veg_club", "Veg Club Sandwich", 250, "A short, multi-layer vegetarian club. Toast, cheese, and salad stacked so each quarter stands up instead of sliding apart. The toast is dry enough to hold the tomato. Cut so you can see the layers. A small sandwich, not a doorstop.", "cat_sliders", "/items/cut/club.png"),
-  plate("item_croissant_sandwich", "Cold Croissant Sandwich", 185, "A croissant split and filled, then left so the pastry stays a little crisp against the filling. It is a sandwich you can pick up. Gone in a few bites. Eat it before the layers soften.", "cat_sliders", "/items/cut/croissant.png"),
-  plate("item_harvest", "Green Harvest Burger", 240, "A vegetable patty on a toasted bun, with tomato and greens so the patty still tastes like vegetables. Pressed just enough that it holds when you pick it up. Served hot. The patty should stay together in the bun.", "cat_sliders", "/items/cut/burger.png"),
-  plate("item_penne", "Penne Creme Pesto", 230, "Penne tossed in a creamy pesto until the sauce clings to the tubes instead of pooling in the bowl. Basil, cheese, and enough cream that it is soft, not oily. Served hot, as a full plate. The pesto should still taste green under the cream.", "cat_mains", "/items/cut/penne.png"),
-  plate("item_spaghetti", "Spaghetti Aglio e Olio", 230, "Spaghetti with garlic, olive oil, and chilli. No cream. The pasta water emulsifies the oil so it coats every strand, and the garlic is cooked sweet, not burnt. Chilli sits on the finish. A hot plate, glossy, and lighter than the pesto.", "cat_mains", "/items/cut/spaghetti.png"),
-  plate("item_paneer", "Marinated Grill Cottage Cheese", 265, "Cubes of paneer sat in a marinade, then cooked on the grill until the edges colour and the centre stays soft. Not a curry and not a fried nugget. Served hot, with the spice on the surface of the cheese. A full plate, eaten with a fork.", "cat_mains", "/items/cut/paneer.png")
+  // POS register catalogue — Food (screenshot order first)
+  plate("item_bacon_burger", "Bacon Burger", 320, "Beef patty, smoked bacon, cheddar, pickles, and house sauce on a toasted bun.", "cat_sliders", "/items/cut/burger.png"),
+  plate("item_cheese_burger", "Cheese Burger", 290, "Classic beef burger with melted cheese, lettuce, tomato, and ketchup.", "cat_sliders", "/items/photos/cheese-burger.png"),
+  plate("item_pizza_margherita", "Pizza Margherita", 350, "Tomato, mozzarella, and basil on a thin crust.", "cat_mains", "/items/photos/pizza-margherita.png"),
+  plate("item_pizza_veg", "Pizza Vegetarian", 380, "Vegetable pizza with peppers, mushrooms, and olives.", "cat_mains", "/items/photos/pizza-vegetarian.png"),
+  plate("item_pasta_4formaggi", "Pasta 4 Formaggi", 340, "Creamy four-cheese pasta, finished with cracked pepper.", "cat_mains", "/items/photos/pasta-4-formaggi.png"),
+  plate("item_funghi", "Funghi", 320, "Saut\xE9ed mushrooms with garlic and herbs.", "cat_appetizers", "/items/cut/paneer.png"),
+  plate("item_pasta_bolo", "Pasta Bolognese", 330, "Slow-cooked meat sauce over pasta.", "cat_mains", "/items/photos/pasta-bolognese.png"),
+  plate("item_chicken_curry_sandwich", "Chicken Sandwich", 280, "Crispy chicken sandwich on a soft roll.", "cat_sliders", "/items/photos/chicken-sandwich.png"),
+  plate("item_spicy_tuna_sandwich", "Tuna Sandwich", 290, "Tuna sandwich on a baguette.", "cat_sliders", "/items/photos/tuna-sandwich.png"),
+  plate("item_mozzarella_sandwich", "Baguette", 260, "Baguette with tomato, cheese, and greens.", "cat_sliders", "/items/photos/baguette.png"),
+  plate("item_club_sandwich", "Club Sandwich", 300, "Triple-decker club with chicken, egg, and salad.", "cat_sliders", "/items/cut/club.png"),
+  plate("item_lunch_maki", "Maki", 420, "Maki rolls with salmon and avocado.", "cat_mains", "/items/photos/maki.png"),
+  plate("item_lunch_salmon", "Sashimi Boat", 480, "Assorted sashimi served in a wooden boat.", "cat_mains", "/items/photos/sashimi-boat.png"),
+  plate("item_lunch_temaki", "Temaki", 360, "Salmon temaki hand roll.", "cat_mains", "/items/photos/temaki.png"),
+  plate("item_salmon_avocado", "Salmon and Avocado", 390, "Salmon and avocado on toast.", "cat_mains", "/items/photos/salmon-avocado.png"),
+  // Screenshot drink row interleaved with food
+  drink("item_coca_cola", "Coca-Cola", 80, "Chilled Coca-Cola in a glass.", "/items/cut/sparkling.png", false),
+  drink("item_water", "Spa", 50, "Spa still water.", "/items/photos/spa.png", false),
+  drink("item_minute_maid", "Minute Maid", 90, "Chilled Minute Maid.", "/items/photos/minute-maid.png", false),
+  drink("item_espresso", "Espresso", 150, "A short espresso in a white cup.", "/items/photos/espresso.png", false),
+  drink("item_green_tea", "Green Tea", 120, "Green tea with fresh mint.", "/items/photos/green-tea.png", false),
+  drink("item_milkshake_banana", "Milkshake", 180, "Milkshake with whipped cream and chocolate.", "/items/photos/milkshake.png", false),
+  drink("item_ice_tea", "Lipton Ice Tea", 110, "Lipton sparkling ice tea.", "/items/photos/lipton-ice-tea.png", false),
+  drink("item_schweppes", "Schweppes Indian Tonic", 90, "Schweppes Indian Tonic.", "/items/photos/schweppes-indian-tonic.png", false),
+  drink("item_fanta", "Fanta", 80, "Chilled Fanta orange.", "/items/photos/fanta.png", false),
+  plate("item_burger_combo", "Burger Menu", 450, "Cheese burger, fries, and a soft drink.", "cat_mains", "/items/photos/burger-menu.png"),
+  plate("item_sushi_combo", "Salmon Nigiri", 520, "Salmon nigiri on a platter.", "cat_mains", "/items/photos/salmon-nigiri.png")
 ];
 var ITEM_POS = {
-  item_moroccan: { num: "1", alpha: "MAS", favorite: true },
-  item_mint_latte: { num: "2", alpha: "ML", favorite: true },
-  item_espresso: { num: "3", alpha: "CE", favorite: true },
-  item_cappuccino: { num: "4", alpha: "CAP", favorite: true },
-  item_mocha: { num: "5", alpha: "CM", favorite: false },
-  item_cold_brew: { num: "6", alpha: "CB", favorite: false },
-  item_iced_americano: { num: "7", alpha: "IA", favorite: false },
-  item_saigon: { num: "8", alpha: "SCB", favorite: false },
-  item_sparkling: { num: "9", alpha: "SE", favorite: false },
-  item_red_john: { num: "10", alpha: "RJ", favorite: false },
-  item_tonic: { num: "11", alpha: "TG", favorite: false },
-  item_halloumi: { num: "12", alpha: "SW", favorite: false },
-  item_avocado_toast: { num: "13", alpha: "BP", favorite: false },
-  item_cheddar: { num: "14", alpha: "CK", favorite: false },
-  item_veg_club: { num: "15", alpha: "VCS", favorite: true },
-  item_croissant_sandwich: { num: "16", alpha: "CR", favorite: false },
-  item_harvest: { num: "17", alpha: "GHB", favorite: true },
-  item_penne: { num: "18", alpha: "PCP", favorite: true },
-  item_spaghetti: { num: "19", alpha: "SAO", favorite: false },
-  item_paneer: { num: "20", alpha: "MGC", favorite: true }
+  item_bacon_burger: { num: "1", alpha: "BB", favorite: true },
+  item_cheese_burger: { num: "2", alpha: "CHB", favorite: true },
+  item_pizza_margherita: { num: "3", alpha: "PM", favorite: true },
+  item_pizza_veg: { num: "4", alpha: "PV", favorite: true },
+  item_pasta_4formaggi: { num: "5", alpha: "P4F", favorite: true },
+  item_funghi: { num: "6", alpha: "FUN", favorite: true },
+  item_pasta_bolo: { num: "7", alpha: "PBO", favorite: true },
+  item_chicken_curry_sandwich: { num: "8", alpha: "CCS", favorite: true },
+  item_spicy_tuna_sandwich: { num: "9", alpha: "STS", favorite: true },
+  item_mozzarella_sandwich: { num: "10", alpha: "MS", favorite: true },
+  item_club_sandwich: { num: "11", alpha: "CS", favorite: true },
+  item_lunch_maki: { num: "12", alpha: "LM", favorite: true },
+  item_lunch_salmon: { num: "13", alpha: "LS", favorite: true },
+  item_lunch_temaki: { num: "14", alpha: "LT", favorite: true },
+  item_salmon_avocado: { num: "15", alpha: "SA", favorite: true },
+  item_burger_combo: { num: "16", alpha: "BMC", favorite: true },
+  item_sushi_combo: { num: "17", alpha: "SLC", favorite: true },
+  item_fries: { num: "18", alpha: "FF", favorite: false },
+  item_garlic_bread: { num: "19", alpha: "GB", favorite: false },
+  item_caesar: { num: "20", alpha: "CAE", favorite: false },
+  item_chicken_wings: { num: "21", alpha: "CW", favorite: false },
+  item_onion_rings: { num: "22", alpha: "OR", favorite: false },
+  item_greek_salad: { num: "23", alpha: "GS", favorite: false },
+  item_fish_chips: { num: "24", alpha: "FC", favorite: false },
+  item_steak_frites: { num: "25", alpha: "SF", favorite: false },
+  item_veg_wrap: { num: "26", alpha: "VW", favorite: false },
+  item_chicken_salad: { num: "27", alpha: "CSA", favorite: false },
+  item_tiramisu: { num: "28", alpha: "TIR", favorite: false },
+  item_cheesecake: { num: "29", alpha: "CHC", favorite: false },
+  item_brownie: { num: "30", alpha: "BRW", favorite: false },
+  item_coca_cola: { num: "31", alpha: "COK", favorite: true },
+  item_water: { num: "32", alpha: "WAT", favorite: true },
+  item_minute_maid: { num: "33", alpha: "MM", favorite: true },
+  item_espresso: { num: "34", alpha: "ESP", favorite: true },
+  item_green_tea: { num: "35", alpha: "GT", favorite: true },
+  item_milkshake_banana: { num: "36", alpha: "MSB", favorite: true },
+  item_ice_tea: { num: "37", alpha: "IT", favorite: true },
+  item_schweppes: { num: "38", alpha: "SCH", favorite: true },
+  item_fanta: { num: "39", alpha: "FAN", favorite: true }
 };
 
 // server/dedupeTables.ts
@@ -3836,7 +4558,18 @@ var STOCK = [
   { id: "inv_cups_8oz", name: "8oz Paper Cups", sku: "PK-CUP-8", category: "Packaging", unit: "pcs", qty: 480, reorder: 120, cost: 4, supplier: "PackPro" },
   { id: "inv_lids", name: "Cup Lids", sku: "PK-LID-01", category: "Packaging", unit: "pcs", qty: 90, reorder: 100, cost: 2, supplier: "PackPro" },
   { id: "inv_napkins", name: "Napkins", sku: "PK-NAP-01", category: "Packaging", unit: "pcs", qty: 1200, reorder: 300, cost: 1, supplier: "PackPro" },
-  { id: "inv_chocolate", name: "Drinking Chocolate", sku: "RM-CHO-01", category: "Raw material", unit: "kg", qty: 1.2, reorder: 0.5, cost: 420, supplier: "Metro" }
+  { id: "inv_chocolate", name: "Drinking Chocolate", sku: "RM-CHO-01", category: "Raw material", unit: "kg", qty: 1.2, reorder: 0.5, cost: 420, supplier: "Metro" },
+  { id: "inv_flour", name: "Flour", sku: "RM-WHT-01", category: "Raw material", unit: "kg", qty: 12, reorder: 3, cost: 48, supplier: "Metro" },
+  { id: "inv_cheese", name: "Cheese", sku: "RM-CHS-01", category: "Raw material", unit: "kg", qty: 4, reorder: 1, cost: 520, supplier: "Local dairy" },
+  { id: "inv_tomato", name: "Tomato", sku: "RM-TOM-01", category: "Raw material", unit: "kg", qty: 6, reorder: 2, cost: 40, supplier: "Market" },
+  { id: "inv_butter", name: "Butter", sku: "RM-BTR-01", category: "Raw material", unit: "kg", qty: 2.5, reorder: 0.8, cost: 480, supplier: "Local dairy" },
+  { id: "inv_egg", name: "Eggs", sku: "RM-EGG-01", category: "Raw material", unit: "pcs", qty: 90, reorder: 24, cost: 8, supplier: "Market" },
+  { id: "inv_tea", name: "Tea Leaves", sku: "RM-TEA-01", category: "Raw material", unit: "kg", qty: 1.4, reorder: 0.4, cost: 360, supplier: "Metro" },
+  { id: "inv_potato", name: "Potato", sku: "RM-POT-01", category: "Raw material", unit: "kg", qty: 15, reorder: 4, cost: 28, supplier: "Market" },
+  { id: "inv_mint", name: "Mint", sku: "RM-MNT-01", category: "Raw material", unit: "kg", qty: 0.6, reorder: 0.2, cost: 180, supplier: "Market" },
+  { id: "inv_chilli", name: "Chilli", sku: "RM-CHL-01", category: "Raw material", unit: "kg", qty: 1.1, reorder: 0.3, cost: 140, supplier: "Market" },
+  { id: "inv_paneer", name: "Paneer", sku: "RM-PNR-01", category: "Raw material", unit: "kg", qty: 3, reorder: 1, cost: 380, supplier: "Local dairy" },
+  { id: "inv_soy", name: "Soy Milk", sku: "RM-SOY-01", category: "Raw material", unit: "l", qty: 4, reorder: 1.5, cost: 120, supplier: "Oatly" }
 ];
 var RECIPES = [
   {
@@ -3934,17 +4667,26 @@ function ensureMenuDisplayMeta() {
       [display.lead, display.titled, display.kcal, serializeIngredients(display.ingredients), itemId]
     );
   }
-  const customDrinks = all(
-    `SELECT id, name, menu_lead, kcal_label, ingredients_json FROM menu_items WHERE cafe_id = ? AND category_id = ?`,
-    [CAFE_ID, DRINKS_CATEGORY_ID]
+}
+function ensureBasicIngredients() {
+  const rows = all(
+    "SELECT id, name, category_id, ingredients_json FROM menu_items WHERE cafe_id = ?",
+    [CAFE_ID]
   );
-  for (const row of customDrinks) {
-    if (LEGACY_MENU_DISPLAY[row.id]) continue;
-    if (row.menu_lead?.trim() || row.kcal_label?.trim() || row.ingredients_json && row.ingredients_json !== "[]") continue;
-    run(
-      "UPDATE menu_items SET menu_lead = ?, menu_subtitle = ?, ingredients_json = ? WHERE id = ?",
-      ["ICED", row.name, serializeIngredients(["coffee"]), row.id]
-    );
+  for (const row of rows) {
+    const current2 = parseIngredientList(row.ingredients_json);
+    const next = basicIngredientsFor(row.id, row.name, row.category_id);
+    const stampedCoffee = current2.length === 1 && current2[0] === "coffee" && !next.includes("coffee");
+    if (!current2.length || stampedCoffee) {
+      run("UPDATE menu_items SET ingredients_json = ? WHERE id = ?", [serializeIngredients(next), row.id]);
+    }
+  }
+  const fresh = all(
+    "SELECT id, category_id, ingredients_json FROM menu_items WHERE cafe_id = ?",
+    [CAFE_ID]
+  );
+  for (const row of fresh) {
+    syncRecipesFromIngredients(row.id, parseIngredientList(row.ingredients_json), row.category_id);
   }
 }
 function ensureDrinkAddonGroups() {
@@ -3962,6 +4704,65 @@ function ensureDrinkAddonGroups() {
       run("INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)", [drink2.id, groupId]);
     }
   }
+}
+function upsertAddonGroup(id, name, minSelect, maxSelect, sortOrder) {
+  run(
+    `INSERT INTO addon_groups (id, cafe_id, name, min_select, max_select, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       min_select = excluded.min_select,
+       max_select = excluded.max_select,
+       sort_order = excluded.sort_order`,
+    [id, CAFE_ID, name, minSelect, maxSelect, sortOrder]
+  );
+}
+function upsertAddon(id, groupId, name, price, sortOrder) {
+  run(
+    `INSERT INTO addons (id, group_id, name, price, is_available, sort_order)
+     VALUES (?, ?, ?, ?, 1, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       group_id = excluded.group_id,
+       name = excluded.name,
+       price = excluded.price,
+       is_available = 1,
+       sort_order = excluded.sort_order`,
+    [id, groupId, name, price, sortOrder]
+  );
+}
+function ensurePosCustomizeGroups() {
+  upsertAddonGroup("group_sides", "Sides", 0, 1, 10);
+  upsertAddon("addon_belgian_fries", "group_sides", "Belgian fresh homemade fries", 0, 1);
+  upsertAddon("addon_sweet_potato_fries", "group_sides", "Sweet potato fries", 0, 2);
+  upsertAddon("addon_smashed_sweet", "group_sides", "Smashed sweet potatoes", 0, 3);
+  upsertAddon("addon_thyme_potatoes", "group_sides", "Potatoes with thyme", 0, 4);
+  upsertAddon("addon_grilled_veg", "group_sides", "Grilled vegetables", 0, 5);
+  upsertAddonGroup("group_combo_burgers", "Burgers", 1, 1, 20);
+  upsertAddon("addon_combo_cheese", "group_combo_burgers", "Cheese Burger", 0, 1);
+  upsertAddon("addon_combo_bacon", "group_combo_burgers", "Bacon Burger", 0, 2);
+  upsertAddonGroup("group_combo_drinks", "Drinks", 1, 1, 21);
+  upsertAddon("addon_combo_coke", "group_combo_drinks", "Coca-Cola", 0, 1);
+  upsertAddon("addon_combo_water", "group_combo_drinks", "Spa", 0, 2);
+  upsertAddon("addon_combo_minute", "group_combo_drinks", "Minute Maid", 0, 3);
+  upsertAddon("addon_combo_milkshake", "group_combo_drinks", "Milkshake", 40, 4);
+  const sideItems = [
+    "item_bacon_burger",
+    "item_cheese_burger",
+    "item_club_sandwich",
+    "item_chicken_curry_sandwich",
+    "item_spicy_tuna_sandwich",
+    "item_mozzarella_sandwich"
+  ];
+  for (const itemId of sideItems) linkAddonGroup(itemId, "group_sides");
+  for (const itemId of ["item_burger_combo", "item_sushi_combo"]) {
+    linkAddonGroup(itemId, "group_combo_burgers");
+    linkAddonGroup(itemId, "group_combo_drinks");
+  }
+}
+function linkAddonGroup(itemId, groupId) {
+  const item = get("SELECT id FROM menu_items WHERE id = ?", [itemId]);
+  if (!item) return;
+  run("INSERT OR IGNORE INTO menu_item_addon_groups (menu_item_id, addon_group_id) VALUES (?, ?)", [itemId, groupId]);
 }
 function ensureDemoScenarios() {
   const table = get("SELECT id FROM tables WHERE cafe_id = ? AND qr_code = ?", [CAFE_ID, "T10"]);
@@ -3985,7 +4786,7 @@ function ensureDemoScenarios() {
     createStaffOrder({
       customerName: "Delivery \xB7 Rahul",
       customerMobile: "9876500888",
-      items: [{ menuItemId: "item_penne", quantity: 1, addonIds: [] }],
+      items: [{ menuItemId: "item_pasta_bolo", quantity: 1, addonIds: [] }],
       notes: "MODE:DELIVERY\nADDR:12 Beach Road, Calangute"
     });
   }
@@ -4036,6 +4837,7 @@ function syncMenu(now) {
       }
     }
   });
+  ensurePosCustomizeGroups();
   const ids = MENU.map((dish) => dish.id);
   run(
     `UPDATE menu_items SET is_available = 0 WHERE cafe_id = ? AND id NOT IN (${ids.map(() => "?").join(",")})`,
@@ -4054,6 +4856,18 @@ function ensureTables(now) {
   }
   floor.push({ name: "Hall 1", qr: "HALL1", area: "Party Hall" });
   floor.push({ name: "Hall 2", qr: "HALL2", area: "Party Hall" });
+  for (let index = 21; index <= 24; index += 1) {
+    const name = `T${String(index).padStart(2, "0")}`;
+    floor.push({ name, qr: name, area: "Terrace" });
+  }
+  for (let index = 25; index <= 28; index += 1) {
+    const name = `T${String(index).padStart(2, "0")}`;
+    floor.push({ name, qr: name, area: "Rooftop" });
+  }
+  for (let index = 29; index <= 32; index += 1) {
+    const name = `T${String(index).padStart(2, "0")}`;
+    floor.push({ name, qr: name, area: "Lounge" });
+  }
   for (const table of floor) {
     run(
       `INSERT OR IGNORE INTO tables (id, cafe_id, name, qr_code, status, area, updated_at)
@@ -4075,6 +4889,7 @@ async function seed() {
     ensureMenuDisplayMeta();
     ensureDemoScenarios();
     ensureInventorySeed();
+    ensureBasicIngredients();
     purgeBlockedCustomers();
     return;
   }
@@ -4108,7 +4923,7 @@ async function seed() {
     customerMobile: "9876500101",
     items: [
       { menuItemId: "item_espresso", quantity: 2, addonIds: [] },
-      { menuItemId: "item_halloumi", quantity: 1, addonIds: [] }
+      { menuItemId: "item_club_sandwich", quantity: 1, addonIds: [] }
     ]
   });
   for (const status of ["READY", "SERVED", "COMPLETED"]) transitionOrder(completed.id, status);
@@ -4119,8 +4934,8 @@ async function seed() {
     customerName: "Rohan",
     customerMobile: "9876500102",
     items: [
-      { menuItemId: "item_iced_americano", quantity: 1, addonIds: ["addon_almond"] },
-      { menuItemId: "item_veg_club", quantity: 1, addonIds: [] }
+      { menuItemId: "item_green_tea", quantity: 1, addonIds: [] },
+      { menuItemId: "item_cheese_burger", quantity: 1, addonIds: [] }
     ]
   });
   transitionOrder(ready.id, "READY");
@@ -4130,8 +4945,8 @@ async function seed() {
     customerName: "Priya",
     customerMobile: "9876500103",
     items: [
-      { menuItemId: "item_mocha", quantity: 1, addonIds: ["addon_oat"] },
-      { menuItemId: "item_penne", quantity: 1, addonIds: [] }
+      { menuItemId: "item_milkshake_banana", quantity: 1, addonIds: [] },
+      { menuItemId: "item_pasta_bolo", quantity: 1, addonIds: [] }
     ]
   });
   retimeOrder(preparing.id, ago(18));
@@ -4140,8 +4955,8 @@ async function seed() {
     customerName: "Arjun",
     customerMobile: "9876500104",
     items: [
-      { menuItemId: "item_cappuccino", quantity: 1, addonIds: ["addon_tall", "addon_oat", "addon_extra_shot"] },
-      { menuItemId: "item_cheddar", quantity: 1, addonIds: [] }
+      { menuItemId: "item_espresso", quantity: 1, addonIds: [] },
+      { menuItemId: "item_bacon_burger", quantity: 1, addonIds: [] }
     ]
   });
   retimeOrder(fresh.id, ago(6));
@@ -4149,6 +4964,7 @@ async function seed() {
   ensureMenuDisplayMeta();
   ensureDemoScenarios();
   ensureInventorySeed();
+  ensureBasicIngredients();
   purgeBlockedCustomers();
 }
 function insertAddon(id, groupId, name, price, sortOrder) {
@@ -4192,7 +5008,11 @@ async function refresh() {
     if (status === "written") (0, import_node_fs5.renameSync)(`${dest}.incoming`, dest);
     await seed();
     booted = true;
-    await pushDatabase(dest);
+    try {
+      await pushDatabase(dest);
+    } catch (error) {
+      console.error("Initial database push failed \u2014 continuing with local SQLite.", error);
+    }
     return;
   }
   if (status === "written") adoptIncoming();
